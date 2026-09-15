@@ -28,6 +28,8 @@ CONF_NOTIFY_TARGETS: Final = "notify_targets"
 CONF_ENABLED: Final = "enabled"
 CONF_NAME: Final = "name"
 
+ATTR_JOB_ID: Final = "job_id"
+
 #: Venues commonly cap a member's weekly allowance at an hour - the venue this
 #: was built against allows exactly 60 minutes per week (quotaRules in the
 #: contract doc). The job form raises it where the venue allows more.

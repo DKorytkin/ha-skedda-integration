@@ -129,6 +129,37 @@
       "authentication": {
         "name": "Authentication"
       }
+    },
+    "switch": {
+      "job_enabled": {
+        "name": "Job enabled"
+      }
+    },
+    "button": {
+      "run_now": {
+        "name": "Run now"
+      }
+    }
+  },
+  "services": {
+    "trigger_job_now": {
+      "name": "Trigger job now",
+      "description": "Runs a booking job immediately instead of waiting for its window to open.",
+      "fields": {
+        "job_id": {
+          "name": "Job",
+          "description": "The subentry id of the booking job. It is shown in the account's diagnostics."
+        }
+      }
+    },
+    "refresh_spaces": {
+      "name": "Refresh spaces",
+      "description": "Re-reads courts and upcoming bookings from Skedda for every configured account."
+    }
+  },
+  "exceptions": {
+    "unknown_job": {
+      "message": "No booking job with the id {job_id} is set up."
     }
   }
 }

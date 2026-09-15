@@ -10,16 +10,23 @@ from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.typing import ConfigType
 
 from .api.client import SkeddaClient
 from .api.models import SkeddaCredentials
 from .const import CONF_VENUE, DOMAIN
 from .coordinator import SkeddaCoordinator
 from .scheduler import JobScheduler
+from .services import async_setup_services
 from .skedda_provider import SkeddaProvider
 from .store import AttemptStore
 
-PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
+PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.SENSOR,
+    Platform.SWITCH,
+]
 
 
 @dataclass
@@ -41,6 +48,12 @@ class SkeddaRuntimeData:
 
 
 type SkeddaConfigEntry = ConfigEntry[SkeddaRuntimeData]
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the services once, whatever accounts exist."""
+    async_setup_services(hass)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bool:
