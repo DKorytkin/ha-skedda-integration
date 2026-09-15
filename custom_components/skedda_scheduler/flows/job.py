@@ -274,7 +274,15 @@ class JobSubentryFlowHandler(ConfigSubentryFlow):
         start = date.fromisoformat(str(essentials.get(CONF_START_DATE, dt_util.utcnow().date())))
         raw_time = str(essentials.get(CONF_START_TIME, "00:00:00"))
         frequency = Frequency(essentials.get(CONF_FREQUENCY, Frequency.ONCE))
-        return describe(space_name, start, time.fromisoformat(raw_time), frequency)
+        return describe(
+            space_name,
+            start,
+            time.fromisoformat(raw_time),
+            frequency,
+            # The name is stored as written, so it has to be written in the
+            # language of whoever is going to read it back.
+            language=self.hass.config.language,
+        )
 
     def _form(
         self,

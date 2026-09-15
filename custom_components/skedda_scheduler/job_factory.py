@@ -36,28 +36,52 @@ from .core.job import BookingJob
 from .core.recurrence import Frequency, RecurrenceRule
 from .core.window import BookingWindow
 
-WEEKDAY_NAMES = (
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-    "Sunday",
-)
+#: Weekday names for the languages this integration ships strings for. A job's
+#: name is free text stored once, so it cannot be translated afterwards - it
+#: has to be written in the reader's language when it is created.
+WEEKDAYS_BY_LANGUAGE: dict[str, tuple[str, ...]] = {
+    "en": (
+        "Mondays",
+        "Tuesdays",
+        "Wednesdays",
+        "Thursdays",
+        "Fridays",
+        "Saturdays",
+        "Sundays",
+    ),
+    "uk": (
+        "щопонеділка",
+        "щовівторка",
+        "щосереди",
+        "щочетверга",
+        "щопʼятниці",
+        "щосуботи",
+        "щонеділі",
+    ),
+}
+DEFAULT_LANGUAGE = "en"
 
 
-def describe(space_name: str, start: date, start_time: time, frequency: Frequency) -> str:
-    """Name a job the way a person would say it out loud.
+def describe(
+    space_name: str,
+    start: date,
+    start_time: time,
+    frequency: Frequency,
+    language: str = DEFAULT_LANGUAGE,
+) -> str:
+    """Name a job the way a person would say it out loud, in their language.
 
     Deriving the name means two fewer fields to fill in, and no booking ends up
-    titled after whatever text happened to be typed into the wrong box.
+    titled after whatever text happened to be typed into the wrong box. It is
+    stored as written, so a name in the wrong language stays wrong for ever.
     """
-    when = (
-        f"{WEEKDAY_NAMES[start.weekday()]}s"
-        if frequency is not Frequency.ONCE
-        else start.strftime("%-d %b")
-    )
+    if frequency is Frequency.ONCE:
+        when = f"{start.day:02d}.{start.month:02d}"
+    else:
+        weekdays = WEEKDAYS_BY_LANGUAGE.get(
+            language.split("-")[0], WEEKDAYS_BY_LANGUAGE[DEFAULT_LANGUAGE]
+        )
+        when = weekdays[start.weekday()]
     return f"{space_name} · {when} {start_time.strftime('%H:%M')}"
 
 

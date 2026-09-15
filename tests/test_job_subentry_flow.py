@@ -111,9 +111,9 @@ async def test_the_job_names_itself_the_way_a_person_would_say_it(
 
     result = await hass.config_entries.subentries.async_configure(result["flow_id"], JOB_INPUT)
 
-    assert result["title"] == "Court 1 · 29 Sep 20:00"
-    assert result["data"][CONF_NAME] == "Court 1 · 29 Sep 20:00"
-    assert result["data"][CONF_TITLE] == "Court 1 · 29 Sep 20:00"
+    assert result["title"] == "Court 1 · 29.09 20:00"
+    assert result["data"][CONF_NAME] == "Court 1 · 29.09 20:00"
+    assert result["data"][CONF_TITLE] == "Court 1 · 29.09 20:00"
 
 
 async def test_a_repeating_job_names_itself_by_the_weekday(

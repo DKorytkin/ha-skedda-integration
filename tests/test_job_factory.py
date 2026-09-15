@@ -10,7 +10,11 @@ from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.skedda_scheduler.core.recurrence import Frequency
-from custom_components.skedda_scheduler.job_factory import build_job, venue_timezone_for
+from custom_components.skedda_scheduler.job_factory import (
+    build_job,
+    describe,
+    venue_timezone_for,
+)
 
 DATA: dict[str, Any] = {
     "name": "Tuesday 18:00",
@@ -159,3 +163,28 @@ def test_a_job_stored_by_an_earlier_version_still_builds() -> None:
 
     assert job.recurrence.weekday == 1
     assert job.recurrence.season_start == date(2026, 9, 1)
+
+
+def test_a_job_is_named_in_the_language_of_whoever_will_read_it() -> None:
+    """A stored name cannot be translated afterwards, so it must start right."""
+    tuesday = date(2026, 9, 29)
+
+    assert describe("Теніс", tuesday, time(20, 0), Frequency.WEEKLY, "uk") == (
+        "Теніс · щовівторка 20:00"
+    )
+    assert describe("Court 1", tuesday, time(20, 0), Frequency.WEEKLY, "en") == (
+        "Court 1 · Tuesdays 20:00"
+    )
+
+
+def test_an_unfamiliar_language_falls_back_rather_than_failing() -> None:
+    assert describe("Court 1", date(2026, 9, 29), time(20, 0), Frequency.WEEKLY, "fr") == (
+        "Court 1 · Tuesdays 20:00"
+    )
+
+
+def test_a_one_off_needs_no_weekday_and_so_no_language() -> None:
+    """A date reads the same in every language this ships in."""
+    assert describe("Теніс", date(2026, 9, 29), time(20, 0), Frequency.ONCE, "uk") == (
+        "Теніс · 29.09 20:00"
+    )
