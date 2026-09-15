@@ -179,8 +179,35 @@ def _weekly_quota(block: Any) -> int | None:
 
 
 @dataclass(frozen=True, slots=True)
+class SkeddaIdentity:
+    """Who we are at this venue, as Skedda numbers it.
+
+    Both ids go into every booking payload and the server does not infer
+    either. `venueuser_id` is the id of the *membership*, not of the account:
+    /webs also carries `web.userId`, a different number, and using it would
+    make every booking fail.
+    """
+
+    venue_id: str
+    venueuser_id: str
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> SkeddaIdentity:
+        web = payload.get("web")
+        if not isinstance(web, dict):
+            raise ApiContractError("/webs carried no 'web' block to read ids from")
+        return cls(
+            venue_id=str(_require(web, "venue")),
+            venueuser_id=str(_require(web, "venueuser")),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class SkeddaBookingRequest:
     """A booking we intend to create.
+
+    Describes *what* to book. Who is booking it is the client's business, and
+    is merged in from SkeddaIdentity when the payload is built.
 
     `start` and `end` are timezone-aware venue-local; endpoints.py strips the
     offset when serialising, so the conversion happens in exactly one place.
@@ -190,6 +217,5 @@ class SkeddaBookingRequest:
     start: datetime
     end: datetime
     title: str
-    venue_id: str
-    venueuser_id: str
+    #: Mirrors the venue's lockInConfig.lockInHours; 1 at every venue seen so far.
     lock_in_margin: int = 1

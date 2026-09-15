@@ -22,10 +22,16 @@ from custom_components.skedda_scheduler.api.errors import (
     SkeddaAuthError,
     SlotTakenError,
 )
-from custom_components.skedda_scheduler.api.models import SkeddaBookingRequest
+from custom_components.skedda_scheduler.api.models import (
+    SkeddaBookingRequest,
+    SkeddaIdentity,
+)
 
 FIXTURES = Path("tests/fixtures/skedda")
 KYIV = ZoneInfo("Europe/Kyiv")
+
+
+IDENTITY = SkeddaIdentity(venue_id="182167", venueuser_id="3985917")
 
 
 def make_request(**overrides: object) -> SkeddaBookingRequest:
@@ -34,8 +40,6 @@ def make_request(**overrides: object) -> SkeddaBookingRequest:
         "start": datetime(2026, 9, 16, 15, 0, tzinfo=KYIV),
         "end": datetime(2026, 9, 16, 16, 0, tzinfo=KYIV),
         "title": "Tennis",
-        "venue_id": "182167",
-        "venueuser_id": "3985917",
     }
     return SkeddaBookingRequest(**(defaults | overrides))  # type: ignore[arg-type]
 
@@ -54,21 +58,21 @@ def test_booking_path_has_no_api_prefix() -> None:
 
 
 def test_booking_payload_serialises_times_as_naive_venue_local() -> None:
-    payload = endpoints.booking_payload(make_request())["booking"]
+    payload = endpoints.booking_payload(make_request(), IDENTITY)["booking"]
     # Skedda sends local wall-clock with no offset - never converted to UTC.
     assert payload["start"] == "2026-09-16T15:00:00"
     assert payload["end"] == "2026-09-16T16:00:00"
 
 
 def test_booking_payload_uses_the_spaces_key_with_string_ids() -> None:
-    payload = endpoints.booking_payload(make_request())["booking"]
+    payload = endpoints.booking_payload(make_request(), IDENTITY)["booking"]
     assert payload["spaces"] == ["1011034"]
     assert "spaceIds" not in payload
 
 
 def test_booking_payload_carries_the_venue_and_the_acting_user() -> None:
     """The server does not infer the booker; omitting venueuser fails."""
-    payload = endpoints.booking_payload(make_request())["booking"]
+    payload = endpoints.booking_payload(make_request(), IDENTITY)["booking"]
     assert payload["venue"] == "182167"
     assert payload["venueuser"] == "3985917"
 
@@ -76,7 +80,7 @@ def test_booking_payload_carries_the_venue_and_the_acting_user() -> None:
 def test_booking_payload_rejects_naive_datetimes() -> None:
     """A naive datetime means the caller lost track of the venue timezone."""
     with pytest.raises(ValueError, match="timezone-aware"):
-        endpoints.booking_payload(make_request(start=datetime(2026, 9, 16, 15, 0)))
+        endpoints.booking_payload(make_request(start=datetime(2026, 9, 16, 15, 0)), IDENTITY)
 
 
 def test_login_payload_wraps_credentials_in_a_login_envelope() -> None:

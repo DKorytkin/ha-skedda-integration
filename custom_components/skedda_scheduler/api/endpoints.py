@@ -22,7 +22,7 @@ from .errors import (
     SkeddaError,
     SlotTakenError,
 )
-from .models import SkeddaBookingRequest
+from .models import SkeddaBookingRequest, SkeddaIdentity
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,7 +138,7 @@ def login_payload(email: str, password: str) -> dict[str, Any]:
     }
 
 
-def booking_payload(request: SkeddaBookingRequest) -> dict[str, Any]:
+def booking_payload(request: SkeddaBookingRequest, identity: SkeddaIdentity) -> dict[str, Any]:
     """Build the create-booking body.
 
     Skedda's own client posts all 40 fields of its booking model; the server
@@ -151,8 +151,8 @@ def booking_payload(request: SkeddaBookingRequest) -> dict[str, Any]:
             "spaces": list(request.space_ids),
             "start": _local_iso(request.start),
             "end": _local_iso(request.end),
-            "venue": request.venue_id,
-            "venueuser": request.venueuser_id,
+            "venue": identity.venue_id,
+            "venueuser": identity.venueuser_id,
             "title": request.title or None,
             "price": 0,
             "type": 1,

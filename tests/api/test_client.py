@@ -18,8 +18,7 @@ from custom_components.skedda_scheduler.api.errors import (
     SkeddaConnectionError,
 )
 from custom_components.skedda_scheduler.api.models import SkeddaCredentials
-
-from .conftest import FakeSkedda
+from tests.conftest import FakeSkedda
 
 CREDS = SkeddaCredentials(venue="myclub", email="user@example.com", password="secret")
 TOKEN = "CfDJ8-test-token"

@@ -32,6 +32,7 @@ from .models import (
     SkeddaBooking,
     SkeddaBookingRequest,
     SkeddaCredentials,
+    SkeddaIdentity,
     SkeddaSession,
     SkeddaSpace,
     SkeddaVenue,
@@ -57,6 +58,7 @@ class SkeddaClient:
         self._http = http
         self._credentials = credentials
         self._session: SkeddaSession | None = None
+        self._identity: SkeddaIdentity | None = None
         self.clock = ClockSync()
 
     @property
@@ -89,6 +91,8 @@ class SkeddaClient:
         failure = endpoints.classify_error(status, body)
         if failure is not None:
             raise failure(endpoints.error_detail(body) or f"login failed with status {status}")
+        # A different account may be signing in; stale ids would misbook.
+        self._identity = None
         self._session = SkeddaSession(
             # The auth cookie is HttpOnly and handled by aiohttp's jar; this
             # mapping exists for diagnostics, not for sending.
@@ -142,9 +146,21 @@ class SkeddaClient:
             raise ApiContractError(f"/webs carried no 'venue' entry; keys {sorted(payload)}")
         return SkeddaVenue.from_payload(venues[0])
 
+    async def identity(self) -> SkeddaIdentity:
+        """Our venue and membership ids, read once per session from /webs.
+
+        Cached because every booking needs them and the burst loop cannot
+        afford a round trip at the instant a window opens.
+        """
+        if self._identity is None:
+            self._identity = SkeddaIdentity.from_payload(await self._webs())
+        return self._identity
+
     async def create_booking(self, request: SkeddaBookingRequest) -> SkeddaBooking:
+        identity = await self.identity()
         _, body, _ = await self.request(
-            endpoints.BOOKINGS, json_body=endpoints.booking_payload(request)
+            endpoints.BOOKINGS,
+            json_body=endpoints.booking_payload(request, identity),
         )
         return self._unwrap_booking(body)
 
@@ -201,6 +217,7 @@ class SkeddaClient:
     def _forget_session_if_stale(self, failure: type[Exception]) -> None:
         if issubclass(failure, AuthExpiredError):
             self._session = None
+            self._identity = None
 
     async def _fetch_antiforgery_token(self, url: str) -> str:
         status, text, _ = await self._get_text(url)
