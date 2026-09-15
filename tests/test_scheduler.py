@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from unittest.mock import AsyncMock, patch
@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from homeassistant.config_entries import ConfigSubentry
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.skedda_scheduler.api.errors import (
@@ -35,6 +36,7 @@ from custom_components.skedda_scheduler.core.recurrence import Frequency, Recurr
 from custom_components.skedda_scheduler.core.result import AttemptStatus
 from custom_components.skedda_scheduler.core.window import BookingWindow
 from custom_components.skedda_scheduler.scheduler import (
+    CATCH_UP_DELAY,
     RATE_LIMIT_BACKOFF_SECONDS,
     JobRunner,
 )
@@ -85,13 +87,13 @@ def no_sleep() -> Iterator[None]:
 @pytest.fixture
 async def runner(
     hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
-) -> JobRunner:
+) -> AsyncIterator[JobRunner]:
     mock_entry.add_to_hass(hass)
     await hass.config_entries.async_setup(mock_entry.entry_id)
     await hass.async_block_till_done()
     store = AttemptStore(hass, mock_entry)
     await store.async_load()
-    return JobRunner(
+    runner = JobRunner(
         hass=hass,
         entry=mock_entry,
         provider=mock_provider,
@@ -100,6 +102,10 @@ async def runner(
         store=store,
         semaphore=asyncio.Semaphore(1),
     )
+    yield runner
+    # An armed job outlives the test otherwise, and Home Assistant's test
+    # harness fails the run for the lingering timer.
+    runner.async_cancel()
 
 
 async def test_a_first_shot_that_lands_stops_the_burst(
@@ -281,7 +287,8 @@ async def test_an_already_open_window_arms_immediately_rather_than_waiting(
     with patch("custom_components.skedda_scheduler.scheduler.dt_util.utcnow", return_value=NOW):
         runner.async_schedule()
 
-    assert runner.armed_for == NOW
+    assert runner.armed_for is not None
+    assert NOW < runner.armed_for <= NOW + CATCH_UP_DELAY
     runner.async_cancel()
     assert runner.armed_for is None
 
@@ -505,3 +512,53 @@ async def test_arming_a_job_whose_season_ends_before_it_fires_does_nothing(
     await runner._async_armed(NOW)
 
     assert mock_provider.book.await_count == 0
+
+
+async def test_a_finished_run_does_not_re_arm_for_the_slot_it_just_tried(
+    runner: JobRunner, mock_provider: AsyncMock, no_sleep: None
+) -> None:
+    """Observed live 2026-09-15: the job re-fired several times a second.
+
+    An open window stays open, so re-arming for the same slot after a run
+    schedules a wake-up that is already due, which runs and re-arms again. The
+    loop hammered the venue until the integration was pulled off the machine.
+    """
+    with patch("custom_components.skedda_scheduler.scheduler.dt_util.utcnow", return_value=NOW):
+        first_slot, _ = JOB.next_slot(NOW)
+        await runner._async_armed(NOW)
+
+        assert runner.attempted_slot == first_slot
+        assert runner.armed_for is not None
+        assert runner.armed_for > NOW
+        # Whatever it arms for next, it is not the slot just tried.
+        assert runner._next_untried_slot(NOW) > first_slot
+
+
+async def test_a_job_with_one_slot_stops_after_trying_it(
+    runner: JobRunner, mock_provider: AsyncMock, no_sleep: None
+) -> None:
+    """A season of one date must not retry that date for ever."""
+    runner.job = replace(JOB, recurrence=replace(JOB.recurrence, season_end=date(2026, 9, 8)))
+
+    with patch("custom_components.skedda_scheduler.scheduler.dt_util.utcnow", return_value=NOW):
+        await runner._async_armed(NOW)
+
+    assert runner.armed_for is None
+
+
+async def test_arming_never_schedules_a_moment_that_is_already_past(
+    runner: JobRunner, mock_provider: AsyncMock
+) -> None:
+    """The guard of last resort.
+
+    Home Assistant runs a wake-up that is already due immediately, so a past
+    arming time is not a late alarm - it is a loop.
+    """
+    runner.attempted_slot = None
+
+    runner.async_schedule()
+    armed = runner.armed_for
+    runner.async_cancel()
+
+    assert armed is not None
+    assert armed > dt_util.utcnow()

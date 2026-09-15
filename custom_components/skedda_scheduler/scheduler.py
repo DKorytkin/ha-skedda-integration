@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
@@ -64,6 +64,11 @@ _ERROR_STATUS: tuple[tuple[type[SkeddaError], AttemptStatus], ...] = (
 #: genuinely transient; this is the back-off that makes the retry defensible.
 RATE_LIMIT_BACKOFF_SECONDS = 2.0
 
+#: How soon a job may fire when its window is already open. Not zero: Home
+#: Assistant's time tracker runs a wake-up that is already due immediately, so
+#: a zero delay turns "catch up on an open window" into a hot loop.
+CATCH_UP_DELAY = timedelta(seconds=1)
+
 #: Recorded when a run ends without firing: no slot left in the season, or the
 #: slot is already ours.
 REASON_ALREADY_BOOKED = "already_booked"
@@ -97,6 +102,8 @@ class JobRunner:
         self.store = store
         self.semaphore = semaphore
         self.armed_for: datetime | None = None
+        #: The slot the last run fired at, so the next arming moves past it.
+        self.attempted_slot: datetime | None = None
         self._unsub: CALLBACK_TYPE | None = None
 
     @property
@@ -106,29 +113,48 @@ class JobRunner:
 
     @callback
     def async_schedule(self) -> None:
-        """Arm for the next window.
+        """Arm for the next slot this job has not already tried.
 
         A window that opened while Home Assistant was down is still open - the
         horizon is rolling, and a slot stays bookable right up until it starts.
-        Waiting for the next one would concede exactly the slot this integration
-        exists to win, so the runner arms for now instead.
+        Waiting for the next window would concede exactly the slot this
+        integration exists to win, so the runner arms for now instead.
+
+        The slot just attempted is skipped, and that is not a refinement: an
+        open window plus a re-arm for the same slot is a wake-up that is
+        already due, which runs, re-arms, and runs again. Observed live on
+        2026-09-15 firing several times a second.
         """
         self.async_cancel()
         if not self.job.enabled:
             return
 
         now = dt_util.utcnow()
-        opens_at = self.job.next_window_open(now)
-        if opens_at is None:
-            _LOGGER.debug("Job %s has no future slot; season is over", self.job.job_id)
+        slot = self._next_untried_slot(now)
+        if slot is None:
+            _LOGGER.debug("Job %s has no slot left to try", self.job.job_id)
             return
 
+        opens_at = self.job.window.opens_at(slot)
         arm_at = build_strategy(self.job.strategy).plan(opens_at).arm_at
-        self.armed_for = max(arm_at, now)
+        # Never in the past: a due wake-up fires immediately, and a run that
+        # arms one loops however it came about.
+        self.armed_for = max(arm_at, now + CATCH_UP_DELAY)
         self._unsub = async_track_point_in_utc_time(self.hass, self._async_armed, self.armed_for)
         _LOGGER.debug(
-            "Job %s armed for %s (window opens %s)", self.job.job_id, self.armed_for, opens_at
+            "Job %s armed for %s (slot %s, window opens %s)",
+            self.job.job_id,
+            self.armed_for,
+            slot,
+            opens_at,
         )
+
+    def _next_untried_slot(self, now: datetime) -> datetime | None:
+        """The start of the next slot worth arming for."""
+        slot = self.job.next_slot(now)
+        if slot is not None and slot[0] == self.attempted_slot:
+            slot = self.job.next_slot(slot[0])
+        return slot[0] if slot is not None else None
 
     @callback
     def async_cancel(self) -> None:
@@ -173,6 +199,9 @@ class JobRunner:
         if slot is None:
             return await self._async_no_op(opens_at, opens_at, reason=None)
         slot_start, slot_end = slot
+        # Remember it before anything can fail: a run that crashed half way
+        # must still not be repeated in a tight loop.
+        self.attempted_slot = slot_start
         if self._already_booked(slot_start):
             _LOGGER.debug("Job %s already holds %s", self.job.job_id, slot_start)
             return await self._async_no_op(slot_start, slot_end, reason=REASON_ALREADY_BOOKED)
