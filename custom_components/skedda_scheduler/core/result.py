@@ -80,6 +80,27 @@ class BookingOutcome:
             return "unknown"
         return str(self.attempts[-1].status)
 
+    def as_record(self) -> dict[str, Any]:
+        """Render for the persisted history, keeping every attempt.
+
+        The event payload collapses attempts to a count. The store is where a
+        lost race has to be explainable weeks later, and only the individual
+        timings and the server's own words can answer that.
+        """
+        return {
+            **self.as_dict(),
+            "attempt_log": [
+                {
+                    "attempt_no": attempt.attempt_no,
+                    "fired_at": attempt.fired_at.isoformat(),
+                    "status": str(attempt.status),
+                    "latency_ms": attempt.latency_ms,
+                    "detail": attempt.detail,
+                }
+                for attempt in self.attempts
+            ],
+        }
+
     def as_dict(self) -> dict[str, Any]:
         """Render for an HA event payload, the persisted store and diagnostics.
 

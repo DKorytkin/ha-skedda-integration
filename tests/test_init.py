@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.skedda_scheduler.store import AttemptStore, storage_key
+from tests.test_store import outcome
+
+OUTCOME = outcome("job-1")
 
 
 async def setup_entry(hass: HomeAssistant, entry: MockConfigEntry) -> MockConfigEntry:
@@ -87,3 +93,31 @@ async def test_updating_the_entry_reloads_it(
     hass.config_entries.async_update_entry(mock_entry, data={**mock_entry.data, "alias": "Renamed"})
     await hass.async_block_till_done()
     assert mock_entry.state is ConfigEntryState.LOADED
+
+
+async def test_the_history_of_a_deleted_job_is_not_kept_forever(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """A re-added job gets a fresh id, so the old rows could never be read."""
+    store = AttemptStore(hass, mock_entry)
+    await store.async_load()
+    await store.async_record(OUTCOME)
+
+    await setup_entry(hass, mock_entry)
+
+    assert mock_entry.runtime_data.store.history_for("job-1") == []
+
+
+async def test_removing_the_account_removes_its_history(
+    hass: HomeAssistant,
+    mock_entry: MockConfigEntry,
+    mock_provider: AsyncMock,
+    hass_storage: dict[str, Any],
+) -> None:
+    await setup_entry(hass, mock_entry)
+    await mock_entry.runtime_data.store.async_record(OUTCOME)
+
+    assert await hass.config_entries.async_remove(mock_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert hass_storage.get(storage_key(mock_entry), {}).get("data") in (None, {})

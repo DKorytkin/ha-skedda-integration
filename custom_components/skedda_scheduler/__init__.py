@@ -15,6 +15,7 @@ from .api.models import SkeddaCredentials
 from .const import CONF_VENUE
 from .coordinator import SkeddaCoordinator
 from .skedda_provider import SkeddaProvider
+from .store import AttemptStore
 
 PLATFORMS: list[Platform] = []
 
@@ -25,6 +26,7 @@ class SkeddaRuntimeData:
 
     provider: SkeddaProvider
     coordinator: SkeddaCoordinator
+    store: AttemptStore
     #: One booking in flight per account. Two jobs racing each other would be
     #: bad anywhere, but at a venue with a weekly quota one job can burn the
     #: allowance the other needed.
@@ -55,9 +57,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bo
     # into a reauth flow and a venue outage into a retry, neither of which a
     # bare setup failure would do.
     await coordinator.async_config_entry_first_refresh()
+    store = AttemptStore(hass, entry)
+    await store.async_load()
+    # Jobs deleted while this account was unloaded would otherwise keep their
+    # history in the file for good; a re-added job gets a fresh id anyway.
+    await store.async_forget(set(entry.subentries))
     entry.runtime_data = SkeddaRuntimeData(
         provider=provider,
         coordinator=coordinator,
+        store=store,
         semaphore=asyncio.Semaphore(1),
     )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -71,3 +79,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> b
 
 async def async_reload_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> None:
+    """Take the account's booking history with it."""
+    await AttemptStore(hass, entry).async_remove()
