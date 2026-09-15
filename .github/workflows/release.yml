@@ -1,0 +1,21 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  verify-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Manifest version must match the tag
+        run: |
+          manifest=$(jq -r .version custom_components/skedda_scheduler/manifest.json)
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$manifest" != "$tag" ]; then
+            echo "manifest.json says $manifest but the tag says $tag" >&2
+            exit 1
+          fi
+          echo "manifest.json and the tag both say $tag"

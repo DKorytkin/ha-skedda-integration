@@ -59,11 +59,15 @@ custom_components/skedda_scheduler/
 │   └── result.py         BookingAttempt, BookingOutcome
 ├── skedda_provider.py    adapter mapping api/ onto core/
 ├── config_flow.py        account and job configuration
-├── flows/                the individual flow steps
-├── coordinator.py        periodic refresh of account state
+├── flows/                account and job flow steps, and their validation
+├── job_factory.py        stored subentry config to BookingJob
+├── coordinator.py        periodic refresh of account state and venue rules
 ├── scheduler.py          arming, timing and the attempt loop
 ├── store.py              persisted attempt history
 ├── sinks/                what happens to an outcome
+├── services.py           trigger_job_now, refresh_spaces
+├── diagnostics.py        redacted dump for bug reports
+├── repairs.py            the "Skedda changed its API" issue
 ├── entity.py             shared entity bases and device wiring
 └── sensor.py, binary_sensor.py, switch.py, button.py
 ```
@@ -98,7 +102,8 @@ class BookingProvider(Protocol):
 
 The integration uses Home Assistant's config entries and subentries:
 
-- A **config entry** holds one account: venue, credentials, label, timezone.
+- A **config entry** holds one account: venue, credentials and label. The venue's
+  timezone is stored alongside them, but discovered rather than typed.
 - A **config subentry** holds one booking job.
 
 This gives multiple accounts and per-job editing without a bespoke settings screen,
@@ -107,13 +112,24 @@ and lets each job own a device with its own entities.
 ## Timing
 
 A booking job declares a slot and a window policy. From those the integration derives
-the exact instant the window opens, in the venue's timezone:
+the exact instant the window opens, in the venue's timezone.
+
+The horizon rolls with the clock: a slot does not unlock at midnight on some day, it
+unlocks at its own time of day, exactly the horizon earlier. Subtracting the days in
+wall-clock terms and only then attaching the zone is what keeps that true across a
+daylight-saving change, which is why `BookingWindow` refuses anything but a named
+zone.
 
 ```
-slot 2026-09-15 18:00 (venue local)
-window: 7 days before, at 00:00:00
-→ opens 2026-09-08 00:00:00 venue local → 2026-09-07 21:00:00 UTC
+slot 2026-09-29 18:00 (venue local, Europe/Kyiv)
+window: 14 days before
+→ opens 2026-09-15 18:00 venue local → 2026-09-15 15:00:00 UTC
 ```
+
+A window that has already opened is not a missed one. The slot stays bookable until
+it starts, so a job whose window opened while Home Assistant was down arms for
+immediately rather than waiting for the next occurrence — guarded by a check of the
+last poll, so a restart cannot re-submit a booking already held.
 
 The `precise` strategy then works backwards from that instant:
 
@@ -136,10 +152,16 @@ taxonomy is deliberately fine-grained.
 |---|---|
 | Window not open yet | Retry immediately — this is expected near the boundary. |
 | Slot already taken | Stop. Retrying the same court cannot succeed. |
+| Weekly allowance spent | Stop. A venue rule, not a fault: no retry can change it. |
+| Slot beyond the horizon | Stop. The job's window is wider than the venue's own. |
 | Session expired | Re-authenticate once, retry once, then stop. |
-| Asked to slow down | Back off and abandon the run. Never escalate. |
+| Asked to slow down | Wait two seconds before the next attempt, never answer at burst speed, never escalate. |
 | Unrecognised response | Abandon the run, raise a repair issue, capture the payload in diagnostics. |
 | Network failure | Retry within the run's remaining attempts. |
+
+The venue-rule failures keep their own identity on purpose. Reporting a spent quota
+as a contract error would send someone hunting for an API change that never happened,
+when the real answer is to book less that week.
 
 Two guards apply regardless: one submission at a time per account, and a hard
 ceiling of eight requests per run.
@@ -160,7 +182,7 @@ BookingOutcome ─┬─▶ history store          (explains a failure after the
 | Layer | Approach |
 |---|---|
 | `core/` | Plain pytest with frozen time. Target: full coverage. |
-| `api/` | Fixtures recorded from real traffic, replayed with `aioresponses`. |
+| `api/` | Fixtures recorded from real traffic, replayed through a local aiohttp server. `aioresponses` does not support the aiohttp that Home Assistant pins, and a real server exercises status codes, 204 bodies and `Date` headers as production will. |
 | Home Assistant layer | `pytest-homeassistant-custom-component`: flows, reauthentication, entity snapshots. |
 | Boundaries | A test that parses imports and fails if a layer reaches upward. |
 

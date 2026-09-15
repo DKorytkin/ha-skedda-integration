@@ -19,17 +19,20 @@ Configuration has two levels:
 | **Email** | The email address you sign in with. |
 | **Password** | The matching password. Stored in Home Assistant's encrypted storage. |
 | **Account name** | A label you choose, shown throughout the interface — for example `Main account` or `Partner account`. |
-| **Venue timezone** | Optional. An IANA timezone such as `Europe/Kyiv`. Leave empty to use Home Assistant's own timezone. |
 
-The credentials are verified before the entry is created. If sign-in fails you are
-told whether the credentials were rejected or the venue could not be reached.
+The credentials are verified before the entry is created, and the check goes further
+than signing in: Skedda authenticates centrally, so a typo in the venue subdomain
+would be accepted by the login page and only surface days later as a booking that
+never happened. The venue itself is asked for its settings, which proves the pairing.
 
-### Why the venue timezone matters
+If setup fails you are told whether the credentials were rejected or the venue could
+not be reached.
 
-Booking windows open at a local time at the venue, not at yours. If the venue is in
-a different timezone from your Home Assistant host, set this field — otherwise the
-window is calculated against the wrong clock and the reservation is submitted at the
-wrong moment.
+### The venue timezone is not something you type
+
+Booking windows open at a local time at the venue, not at yours, and an hour's error
+is enough to lose every slot. The timezone is therefore read from the venue's own
+settings during setup and refreshed on every poll, rather than being asked for.
 
 ### Adding more accounts
 
@@ -54,21 +57,35 @@ Open the account entry under **Settings → Devices & Services** and choose
 | **Court** | Which space to book. The list is read from your venue. | `Court 1` |
 | **Day of week** | The weekday the slot falls on. | `Tuesday` |
 | **Start time** | Local start time at the venue. | `18:00` |
-| **Duration** | Length in minutes, in 15-minute steps. | `90` |
+| **Duration** | Length in minutes. The step follows the venue's own booking granularity — at a venue that books whole hours, 15 minutes is not offered, because the server would refuse it. | `60` |
 
 ### The booking window
 
-These two fields describe your venue's reservation policy. They are the fields to
-get right — everything about timing follows from them.
+This one field describes your venue's reservation policy, and everything about
+timing follows from it. It is pre-filled from the venue's own settings, so in most
+cases you should leave it alone.
 
 | Field | Meaning | Example |
 |---|---|---|
-| **Booking opens this many days before** | How far ahead the venue accepts reservations. | `7` |
-| **Booking opens at (venue time)** | The local time of day the window opens. | `00:00:00` |
+| **Booking opens this many days before** | How far ahead the venue accepts reservations. | `14` |
 
-With the example values, a slot on Tuesday the 15th becomes bookable at midnight on
-Tuesday the 8th, venue time. If you are unsure, the policy is usually stated on the
-venue's Skedda page or in its house rules.
+The horizon rolls with the clock rather than unlocking at midnight. With the example
+value, a slot at 18:00 on Tuesday the 29th becomes bookable at 18:00 on Tuesday the
+15th — the same time of day, exactly that many days earlier.
+
+Match the venue exactly. Set it larger and every request goes out before the venue
+will accept anything; set it smaller and the request arrives days after the slot
+became available to everyone else.
+
+### Limits the form will not let you past
+
+Two settings describe a job that could never book anything, so they are refused
+while you are still in the form rather than failing quietly every week:
+
+- a **duration** longer than the venue's weekly allowance;
+- a **window** wider than the venue's own horizon.
+
+Both limits are read from the venue and shown in the form's description.
 
 ### Repetition
 
@@ -93,10 +110,12 @@ venue's Skedda page or in its house rules.
 | **Precise** | Prepares the session about two minutes ahead, measures the offset between the Home Assistant clock and the venue server's clock, then submits the request at the exact moment the window opens. Retries briefly if the server still considers the window closed. | The default. Use it whenever the slot is expected to be taken quickly after the window opens. |
 | **Immediate** | Submits once when the window opens and retries a few times with a growing delay. | Quiet venues, or when you prefer the simplest possible behaviour. |
 
-Both strategies stop as soon as a reservation succeeds, and both stop immediately if
-the slot is already taken, if the venue asks the client to slow down, or if the
-response is not something the integration recognises. A hard ceiling of eight
-requests per run applies regardless of configuration.
+Both strategies stop as soon as a reservation succeeds, and both stop immediately
+when the answer cannot change: the slot is already taken, the weekly allowance is
+spent, the slot is beyond the venue's horizon, or the response is not something the
+integration recognises. Being asked to slow down pauses the run for a couple of
+seconds before the next attempt rather than answering at burst speed. A hard ceiling
+of eight requests per run applies regardless of configuration.
 
 ## Editing and removing
 

@@ -17,7 +17,7 @@ renamed or hidden in one place.
 | Entity | Type | Meaning |
 |---|---|---|
 | `Next run` | sensor (timestamp) | When the integration will next wake up for this job. Unknown once the season has ended. |
-| `Last outcome` | sensor | `success`, or the reason the last run failed: `slot_taken`, `too_early`, `auth_failed`, `rate_limited`, `contract_error`, `connection_error`. |
+| `Last outcome` | sensor | `success`, or the reason the last run failed: `slot_taken`, `quota_exceeded`, `window_closed`, `too_early`, `auth_failed`, `rate_limited`, `contract_error`, `connection_error`, or `already_booked` when the slot was already held and nothing was sent. |
 | `Job enabled` | switch | Pauses or resumes the job without deleting it. |
 | `Run now` | button | Runs the job immediately instead of waiting for its window. |
 
@@ -73,7 +73,7 @@ Payload:
 | `job_id` | string | The job's internal id. |
 | `succeeded` | boolean | Whether a reservation was created. |
 | `booking_id` | string or null | The Skedda reservation id. |
-| `space_id` | integer or null | The booked court. |
+| `space_id` | string or null | The booked court. Skedda's ids are strings. |
 | `slot_start`, `slot_end` | ISO 8601 | The reserved interval. |
 | `attempts` | integer | How many requests the run made. |
 | `failure_reason` | string or null | Why the run failed, if it did. |

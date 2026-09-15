@@ -58,7 +58,8 @@ Home Assistant. Your accounts and booking jobs are preserved across updates.
 ## Uninstalling
 
 1. Remove every Skedda Scheduler entry under **Settings → Devices & Services**.
-   This deletes the stored credentials and booking jobs.
+   This deletes the stored credentials, the booking jobs and the recorded attempt
+   history for that account.
 2. Remove the integration from HACS.
 3. Restart Home Assistant.
 

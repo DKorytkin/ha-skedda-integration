@@ -2,18 +2,16 @@
 
 A Home Assistant integration for recurring bookings in [Skedda](https://www.skedda.com/).
 
-Venues that use Skedda usually open reservations a fixed period ahead — a slot
-seven days away becomes bookable at midnight, and not a moment sooner. Holding a
-regular weekly slot therefore means being at a keyboard at an inconvenient hour,
-every week, for the length of a season.
+Venues that use Skedda open reservations a fixed period ahead, and the horizon
+rolls with the clock: at a venue that books two weeks out, the 18:00 slot two
+weeks from today becomes available at 18:00 today, and not a moment sooner.
+Holding a regular weekly slot therefore means being at a keyboard at an exact
+minute, every week, for the length of a season.
 
 This integration turns that into configuration. You describe the slot once — court,
 weekday, time, how far ahead the venue opens bookings — and Home Assistant submits
 the reservation when the booking window opens, then reports the result as entities,
 events and notifications.
-
-> **Status:** in development. v0.1 has not been released yet, so the screens and
-> field names below describe the intended behaviour rather than shipped software.
 
 ## Documentation
 
@@ -28,8 +26,9 @@ events and notifications.
 ## Features
 
 - **Recurring bookings** — weekly or fortnightly, bounded by a season start and end date.
-- **Booking-window awareness** — you declare how far ahead and at what local time the
-  venue opens reservations; the integration derives the exact instant from that.
+- **Booking-window awareness** — you declare how far ahead the venue opens
+  reservations; the integration derives the exact instant each slot unlocks, in the
+  venue's own timezone, and refuses a job the venue's rules make impossible.
 - **Accurate submission** — the session is prepared in advance and the request is
   timed against the venue server's own clock rather than the Home Assistant host's.
 - **Several accounts** — add as many Skedda accounts as you need and assign each
