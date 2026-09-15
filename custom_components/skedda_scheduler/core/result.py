@@ -68,6 +68,9 @@ class BookingOutcome:
     slot_end: datetime
     attempts: tuple[BookingAttempt, ...]
     finished_at: datetime
+    #: Why the run fired nothing at all, when it fired nothing. A run can end
+    #: without an attempt: the season is over, or the slot is already ours.
+    no_attempt_reason: str | None = None
 
     @property
     def failure_reason(self) -> str | None:
@@ -75,9 +78,9 @@ class BookingOutcome:
         if self.succeeded:
             return None
         if not self.attempts:
-            # A job can finish without firing: disabled mid-run, or aborted
-            # because the slot was already past. Still needs a reportable state.
-            return "unknown"
+            # A job can finish without firing: the season is over, or the slot
+            # is already booked. Still needs a reportable state.
+            return self.no_attempt_reason or "unknown"
         return str(self.attempts[-1].status)
 
     def as_record(self) -> dict[str, Any]:

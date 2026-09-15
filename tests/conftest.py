@@ -13,8 +13,10 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import aiohttp
 import pytest
@@ -30,7 +32,7 @@ from custom_components.skedda_scheduler.const import (
     CONF_VENUE_TIMEZONE,
     DOMAIN,
 )
-from custom_components.skedda_scheduler.core.provider import Space, VenueRules
+from custom_components.skedda_scheduler.core.provider import Booking, Space, VenueRules
 
 
 @dataclass
@@ -155,6 +157,17 @@ VENUE_RULES = VenueRules(
 
 SPACES = (Space(id="2000001", name="Court 1"), Space(id="2000002", name="Court 2"))
 
+#: What a successful booking looks like coming back from the venue. The fake
+#: provider returns a real one because arming a job fires for real: a mock's
+#: attribute would reach the history store and fail to serialise.
+BOOKED = Booking(
+    id="bk-fixture",
+    space_ids=("2000001",),
+    start=datetime(2026, 9, 29, 18, 0, tzinfo=ZoneInfo("Europe/Kyiv")),
+    end=datetime(2026, 9, 29, 19, 0, tzinfo=ZoneInfo("Europe/Kyiv")),
+    title="Tennis (auto)",
+)
+
 ENTRY_DATA = {
     CONF_VENUE: "myclub",
     CONF_EMAIL: "user@example.com",
@@ -185,5 +198,10 @@ def mock_provider() -> Iterator[AsyncMock]:
     provider.venue_settings.return_value = VENUE_RULES
     provider.list_spaces.return_value = list(SPACES)
     provider.list_bookings.return_value = []
+    provider.book.return_value = BOOKED
+    # The real provider exposes a synchronous client carrying the clock
+    # estimate; an AsyncMock here would hand back coroutines instead of times.
+    provider.client = MagicMock()
+    provider.client.clock.local_instant_for.side_effect = lambda instant: instant
     with patch("custom_components.skedda_scheduler.SkeddaProvider", return_value=provider):
         yield provider

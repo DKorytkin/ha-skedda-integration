@@ -6,9 +6,11 @@ from datetime import date, time
 from typing import Any
 
 import pytest
+from homeassistant.core import HomeAssistant
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.skedda_scheduler.core.recurrence import Frequency
-from custom_components.skedda_scheduler.job_factory import build_job
+from custom_components.skedda_scheduler.job_factory import build_job, venue_timezone_for
 
 DATA: dict[str, Any] = {
     "name": "Tuesday 18:00",
@@ -94,3 +96,13 @@ def test_invalid_stored_config_raises_value_error() -> None:
 def test_an_unknown_venue_timezone_is_rejected_here_not_at_booking_time() -> None:
     with pytest.raises(ValueError, match="IANA"):
         build_job("sub-1", DATA, "Mars/Olympus")
+
+
+def test_the_venue_timezone_falls_back_when_the_account_never_loaded(
+    hass: HomeAssistant, mock_entry: MockConfigEntry
+) -> None:
+    """Entry data holds what setup discovered; HA's own zone is the last resort."""
+    assert venue_timezone_for(hass, mock_entry) == "Europe/Kyiv"
+
+    blank = MockConfigEntry(domain=mock_entry.domain, data={})
+    assert venue_timezone_for(hass, blank) == hass.config.time_zone

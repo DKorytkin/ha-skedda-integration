@@ -14,6 +14,7 @@ from .api.client import SkeddaClient
 from .api.models import SkeddaCredentials
 from .const import CONF_VENUE
 from .coordinator import SkeddaCoordinator
+from .scheduler import JobScheduler
 from .skedda_provider import SkeddaProvider
 from .store import AttemptStore
 
@@ -31,6 +32,8 @@ class SkeddaRuntimeData:
     #: bad anywhere, but at a venue with a weekly quota one job can burn the
     #: allowance the other needed.
     semaphore: asyncio.Semaphore
+    #: Filled in once the runtime data exists, because the scheduler reads it.
+    scheduler: JobScheduler | None = None
 
 
 type SkeddaConfigEntry = ConfigEntry[SkeddaRuntimeData]
@@ -69,6 +72,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bo
         semaphore=asyncio.Semaphore(1),
     )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    scheduler = JobScheduler(hass, entry)
+    entry.runtime_data.scheduler = scheduler
+    scheduler.async_sync_jobs()
+    entry.async_on_unload(scheduler.async_shutdown)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 

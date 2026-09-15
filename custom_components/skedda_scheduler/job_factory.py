@@ -12,6 +12,9 @@ from collections.abc import Mapping
 from datetime import date, time
 from typing import Any
 
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+
 from .const import (
     CONF_DURATION,
     CONF_ENABLED,
@@ -24,6 +27,7 @@ from .const import (
     CONF_START_TIME,
     CONF_STRATEGY,
     CONF_TITLE,
+    CONF_VENUE_TIMEZONE,
     CONF_WEEKDAY,
     CONF_WINDOW_DAYS,
 )
@@ -69,3 +73,17 @@ def build_job(subentry_id: str, data: Mapping[str, Any], venue_timezone: str) ->
         notify_targets=tuple(data.get(CONF_NOTIFY_TARGETS) or ()),
         enabled=bool(data.get(CONF_ENABLED, True)),
     )
+
+
+def venue_timezone_for(hass: HomeAssistant, entry: ConfigEntry) -> str:
+    """The venue's timezone: what it last told us, then what setup stored.
+
+    Never Home Assistant's own zone unless nothing else is known - the venue's
+    clock is what decides when a window opens, and booking times go on the wire
+    as a bare wall clock with nothing to correct a wrong guess.
+    """
+    try:
+        return str(entry.runtime_data.coordinator.data.rules.timezone)
+    except AttributeError:
+        pass
+    return str(entry.data.get(CONF_VENUE_TIMEZONE) or hass.config.time_zone)
