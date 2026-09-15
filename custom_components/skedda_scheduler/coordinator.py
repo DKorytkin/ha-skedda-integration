@@ -48,6 +48,10 @@ class SkeddaData:
 class SkeddaCoordinator(DataUpdateCoordinator[SkeddaData]):
     """Keeps one account's view of Skedda fresh."""
 
+    #: The base class allows None; this one is always built with an entry, and
+    #: the entities read it without checking.
+    config_entry: ConfigEntry
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, provider: SkeddaProvider) -> None:
         super().__init__(
             hass,

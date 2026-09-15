@@ -279,7 +279,23 @@ class JobRunner:
 
     async def _async_finish(self, outcome: BookingOutcome) -> None:
         await self.store.async_record(outcome)
+        self._async_notify_entities()
         await async_dispatch(self.sinks, outcome, self.job)
+
+    @callback
+    def _async_notify_entities(self) -> None:
+        """Push the new outcome to the entities, then catch the data up.
+
+        The history lives in the store, which nothing polls, so without this
+        the job's sensor would keep reporting the previous run until the next
+        quarter-hourly poll. The refresh is for the booking we just made.
+        """
+        try:
+            coordinator = self.entry.runtime_data.coordinator
+        except AttributeError:
+            return
+        coordinator.async_update_listeners()
+        self.hass.async_create_task(coordinator.async_request_refresh())
 
     async def _async_sleep_until(self, server_instant: datetime) -> None:
         """Sleep until our clock reads the moment Skedda's clock reads this.

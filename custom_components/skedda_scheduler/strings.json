@@ -115,5 +115,20 @@
         "reconfigure_successful": "The booking job was updated."
       }
     }
+  },
+  "entity": {
+    "sensor": {
+      "next_run": {
+        "name": "Next run"
+      },
+      "last_outcome": {
+        "name": "Last outcome"
+      }
+    },
+    "binary_sensor": {
+      "authentication": {
+        "name": "Authentication"
+      }
+    }
   }
 }
