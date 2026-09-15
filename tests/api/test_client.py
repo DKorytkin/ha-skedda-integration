@@ -32,9 +32,20 @@ LOGIN_OK = {"login": {"id": "7cdf5129d8064d788811a5b15a10955c", "redirectUrl": N
 DATE = {"Date": "Tue, 15 Sep 2026 11:54:59 GMT"}
 
 
+#: Skedda answers a successful sign-in with an HttpOnly session cookie; the
+#: fake sets one so that anything reading the jar is reading something real.
+SESSION_COOKIE = ".AspNet.ApplicationCookie=abc123; Path=/; HttpOnly"
+
+
 def stub_login(skedda: FakeSkedda, *, status: int = 200) -> None:
     skedda.stub("GET", endpoints.LOGIN_PAGE.path, text=LOGIN_PAGE_HTML, headers=DATE)
-    skedda.stub("POST", endpoints.LOGIN.path, status=status, json=LOGIN_OK, headers=DATE)
+    skedda.stub(
+        "POST",
+        endpoints.LOGIN.path,
+        status=status,
+        json=LOGIN_OK,
+        headers={**DATE, "Set-Cookie": SESSION_COOKIE},
+    )
 
 
 async def authenticated(http: aiohttp.ClientSession, skedda: FakeSkedda) -> SkeddaClient:
@@ -277,6 +288,8 @@ async def test_stored_cookies_are_masked_for_diagnostics(
 ) -> None:
     """Session cookies must never reach a diagnostics dump verbatim."""
     client = await authenticated(http, skedda)
+    assert client.session is not None
+    assert client.session.cookies, "the fake must hand out a session cookie"
     assert all(value == "***" for value in client.session.cookies.values())
 
 
@@ -331,3 +344,38 @@ async def test_a_rejected_login_is_reported_as_bad_credentials_not_a_contract_er
     with pytest.raises(SkeddaAuthError, match="not correct"):
         await client.authenticate()
     assert not client.is_authenticated
+
+
+async def test_signing_in_again_starts_from_a_clean_slate(
+    http: aiohttp.ClientSession, skedda: FakeSkedda
+) -> None:
+    """Skedda refuses a login attempted while an old session is still held.
+
+    Observed live 2026-09-16: "our super detectives found a potential security
+    problem ... this can happen if you've logged in/out on another tab". A
+    reloaded config entry builds a new client over the same cookie jar, so the
+    second sign-in must drop what the first one left behind.
+    """
+    client = SkeddaClient(http, CREDS)
+    stub_login(skedda)
+    await client.authenticate()
+    assert len(http.cookie_jar) > 0
+
+    skedda.stub(
+        "POST",
+        endpoints.LOGIN.path,
+        status=400,
+        json={"errors": [{"detail": "a potential security problem"}]},
+    )
+    seen: list[int] = []
+    original = client._fetch_antiforgery_token
+
+    async def watch(url: str) -> str:
+        seen.append(len(http.cookie_jar))
+        return await original(url)
+
+    client._fetch_antiforgery_token = watch  # type: ignore[method-assign]
+    with pytest.raises(SkeddaAuthError):
+        await client.authenticate()
+
+    assert seen == [0], "the login page must be fetched without a stale session"

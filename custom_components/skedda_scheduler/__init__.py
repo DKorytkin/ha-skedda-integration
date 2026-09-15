@@ -9,7 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.typing import ConfigType
 
 from .api.client import SkeddaClient
@@ -68,9 +68,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bo
         email=entry.data[CONF_EMAIL],
         password=entry.data[CONF_PASSWORD],
     )
-    # Home Assistant's shared session: it is closed on shutdown for us, and
-    # reuses connections, which matters when a burst fires at a window opening.
-    client = SkeddaClient(async_get_clientsession(hass), credentials)
+    # Its own session, not Home Assistant's shared one: this integration needs
+    # a cookie jar of its own. Skedda refuses a sign-in made while an older
+    # session is still held, and a shared jar carries one across every reload.
+    # Created during entry setup, so Home Assistant detaches it when the entry
+    # is unloaded; closing it here would be closing it twice.
+    client = SkeddaClient(async_create_clientsession(hass), credentials)
     provider = SkeddaProvider(client)
     coordinator = SkeddaCoordinator(hass, entry, provider)
     # The first refresh is what proves the credentials: it turns a rejection

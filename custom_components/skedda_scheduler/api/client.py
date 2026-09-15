@@ -75,6 +75,13 @@ class SkeddaClient:
         The token is scraped from the login page before the credentials are
         posted: Skedda issues it with the page, not with a successful login.
         """
+        # Skedda refuses a sign-in attempted while an old session is still
+        # held - "our super detectives found a potential security problem".
+        # A reloaded entry builds a new client over the same cookie jar, so
+        # whatever the last one left behind has to go first.
+        self._http.cookie_jar.clear()
+        self._session = None
+        self._identity = None
         token = await self._fetch_antiforgery_token(
             endpoints.LOGIN_HOST + endpoints.LOGIN_PAGE.path
         )
@@ -101,8 +108,6 @@ class SkeddaClient:
                 # API changed would send them hunting for someone else's bug.
                 raise SkeddaAuthError(detail)
             raise failure(detail)
-        # A different account may be signing in; stale ids would misbook.
-        self._identity = None
         self._session = SkeddaSession(
             # The auth cookie is HttpOnly and handled by aiohttp's jar; this
             # mapping exists for diagnostics, not for sending.
