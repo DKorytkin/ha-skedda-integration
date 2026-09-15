@@ -14,6 +14,7 @@ from custom_components.skedda_scheduler.api import endpoints
 from custom_components.skedda_scheduler.api.errors import (
     ApiContractError,
     BookingWindowClosedError,
+    SlotTakenError,
 )
 from custom_components.skedda_scheduler.api.models import SkeddaBookingRequest
 
@@ -221,3 +222,14 @@ async def test_a_booking_response_that_is_not_an_object_is_a_contract_error(
     skedda.stub("POST", endpoints.BOOKINGS.path, json=[])
     with pytest.raises(ApiContractError, match="not an object"):
         await client.create_booking(REQUEST)
+
+
+async def test_create_booking_surfaces_a_slot_conflict(
+    http: aiohttp.ClientSession, skedda: FakeSkedda
+) -> None:
+    """The one failure where falling back to a reserve space is worth trying."""
+    client = await authenticated(http, skedda)
+    skedda.stub("POST", endpoints.BOOKINGS.path, status=422, json=load("error_conflict.json"))
+    with pytest.raises(SlotTakenError, match="conflicts with"):
+        await client.create_booking(REQUEST)
+    assert client.is_authenticated

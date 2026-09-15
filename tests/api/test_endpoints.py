@@ -20,6 +20,7 @@ from custom_components.skedda_scheduler.api.errors import (
     QuotaExceededError,
     RateLimitedError,
     SkeddaAuthError,
+    SlotTakenError,
 )
 from custom_components.skedda_scheduler.api.models import SkeddaBookingRequest
 
@@ -141,3 +142,39 @@ def test_malformed_422_bodies_degrade_to_a_contract_error(body: object) -> None:
     """
     assert endpoints.classify_error(422, body) is ApiContractError
     assert endpoints.error_detail(body) == ""
+
+
+def test_classify_error_recognises_a_slot_conflict_by_phrase() -> None:
+    """The conflict error carries no data-var markers, only prose.
+
+    Confirmed 2026-09-15. Falling through to ApiContractError would cost the
+    reserve-space fallback, which is the one recovery a conflict allows.
+    """
+    body = json.loads((FIXTURES / "error_conflict.json").read_text())
+    assert endpoints.classify_error(422, body) is SlotTakenError
+
+
+def test_a_conflict_detail_needs_no_tag_stripping() -> None:
+    body = json.loads((FIXTURES / "error_conflict.json").read_text())
+    detail = endpoints.error_detail(body)
+    assert detail.startswith("We couldn't put in your booking")
+    assert "<" not in detail
+
+
+def test_marker_matching_wins_over_phrase_matching() -> None:
+    """A quota body that happens to contain the word "conflicts" is still quota.
+
+    Markers are structured and language-independent; phrases are neither, so
+    they must only ever be the fallback.
+    """
+    body = {
+        "errors": [
+            {
+                "detail": "<span>conflicts with your quota for the week "
+                '<var data-var="period-start">28.09.26</var> to '
+                '<var data-var="period-end">04.10.26</var>, max '
+                '<var data-var="time-value">1h</var></span>'
+            }
+        ]
+    }
+    assert endpoints.classify_error(422, body) is QuotaExceededError

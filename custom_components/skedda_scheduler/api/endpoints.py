@@ -20,6 +20,7 @@ from .errors import (
     RateLimitedError,
     SkeddaAuthError,
     SkeddaError,
+    SlotTakenError,
 )
 from .models import SkeddaBookingRequest
 
@@ -61,6 +62,21 @@ STATUS_MAP: dict[int, type[SkeddaError]] = {
 # Both are permanent for the run: no retry and no reserve space will help.
 # SlotTakenError has no marker yet - that response was not capturable while the
 # test account's weekly quota was spent. Leave it absent rather than guess.
+# Phrases that identify errors Skedda sends as bare prose, with no markup and
+# no placeholders to key off. Confirmed 2026-09-15 for the conflict case.
+#
+# This is deliberately weaker than ERROR_MARKERS and it is language-fragile:
+# the prose arrived in English at a venue whose dates render in Ukrainian, so
+# it follows some venue language setting rather than the request's
+# Accept-Language. A venue configured in another language would not match, and
+# the failure then degrades to ApiContractError - noisy, but never a wrong
+# retry. If that proves a problem, the scheduler can confirm a suspected
+# conflict by re-reading /bookingslists, which is language-independent.
+ERROR_PHRASES: tuple[tuple[str, type[SkeddaError]], ...] = (
+    ("conflicts with", SlotTakenError),
+    ("conflicting bookings are not allowed", SlotTakenError),
+)
+
 ERROR_MARKERS: tuple[tuple[frozenset[str], type[SkeddaError]], ...] = (
     (frozenset({"duration-days"}), BookingWindowClosedError),
     (frozenset({"period-start", "period-end", "time-value"}), QuotaExceededError),
@@ -183,6 +199,10 @@ def classify_error(status: int, body: Any) -> type[SkeddaError] | None:
         markers = _error_markers(body)
         for expected, error in ERROR_MARKERS:
             if expected <= markers:
+                return error
+        detail = error_detail(body).casefold()
+        for phrase, error in ERROR_PHRASES:
+            if phrase in detail:
                 return error
     return ApiContractError
 
