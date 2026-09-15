@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Add a Skedda account",
-        "description": "Sign in with the account you normally book with. The venue is the first part of its Skedda address: for https://myclub.skedda.com that is `myclub`.",
+        "description": "Sign in with the account you normally book with. The venue is the first part of your Skedda address: for `myclub.skedda.com` that is `myclub`.",
         "data": {
           "venue": "Venue",
           "email": "Email",

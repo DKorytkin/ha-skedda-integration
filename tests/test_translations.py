@@ -54,17 +54,8 @@ def test_every_placeholder_survives_translation(language: str) -> None:
     source = load(COMPONENT / "strings.json")
     translated = load(COMPONENT / "translations" / f"{language}.json")
 
-    def strings(node: Any, prefix: str = "") -> dict[str, str]:
-        if isinstance(node, str):
-            return {prefix: node}
-        found: dict[str, str] = {}
-        if isinstance(node, dict):
-            for key, value in node.items():
-                found |= strings(value, f"{prefix}.{key}" if prefix else key)
-        return found
-
-    translated_strings = strings(translated)
-    for key, text in strings(source).items():
+    translated_strings = _all_strings(translated)
+    for key, text in _all_strings(source).items():
         expected = set(re.findall(r"\{(\w+)\}", text))
         actual = set(re.findall(r"\{(\w+)\}", translated_strings[key]))
         assert expected == actual, f"{language}.json {key}: expected {expected}, got {actual}"
@@ -73,3 +64,34 @@ def test_every_placeholder_survives_translation(language: str) -> None:
 def test_english_is_a_copy_of_the_source_strings() -> None:
     """Home Assistant loads translations/, not strings.json, for a custom component."""
     assert load(COMPONENT / "strings.json") == load(COMPONENT / "translations" / "en.json")
+
+
+@pytest.mark.parametrize("language", [*LANGUAGES, "source"])
+def test_no_translated_string_carries_a_url(language: str) -> None:
+    """Home Assistant rejects URLs in translations; hassfest fails the build.
+
+    Catching it here costs a second, rather than a round trip through CI.
+    """
+    import re
+
+    path = (
+        COMPONENT / "strings.json"
+        if language == "source"
+        else COMPONENT / "translations" / f"{language}.json"
+    )
+
+    offenders = [
+        key for key, text in _all_strings(load(path)).items() if re.search(r"https?://", text)
+    ]
+
+    assert not offenders, f"{path.name} carries URLs at: {offenders}"
+
+
+def _all_strings(node: Any, prefix: str = "") -> dict[str, str]:
+    if isinstance(node, str):
+        return {prefix: node}
+    found: dict[str, str] = {}
+    if isinstance(node, dict):
+        for key, value in node.items():
+            found |= _all_strings(value, f"{prefix}.{key}" if prefix else key)
+    return found

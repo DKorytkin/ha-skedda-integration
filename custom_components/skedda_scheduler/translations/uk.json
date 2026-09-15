@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Додати акаунт Skedda",
-        "description": "Увійдіть тим акаунтом, яким зазвичай бронюєте. Заклад — це перша частина його адреси в Skedda: для https://myclub.skedda.com це `myclub`.",
+        "description": "Увійдіть тим акаунтом, яким зазвичай бронюєте. Заклад — це перша частина вашої адреси в Skedda: для `myclub.skedda.com` це `myclub`.",
         "data": {
           "venue": "Заклад",
           "email": "Email",
