@@ -48,5 +48,72 @@
       "reauth_successful": "Signed in again.",
       "reconfigure_successful": "The account was updated."
     }
+  },
+  "config_subentries": {
+    "job": {
+      "title": "Booking job",
+      "initiate_flow": {
+        "user": "Add a booking job",
+        "reconfigure": "Edit the booking job"
+      },
+      "entry_type": "Booking job",
+      "step": {
+        "user": {
+          "title": "Add a booking job",
+          "description": "The job books the same slot every week. This venue opens bookings {horizon} days ahead and allows {quota} minutes per week.",
+          "data": {
+            "name": "Job name",
+            "space_id": "Court",
+            "weekday": "Day of week",
+            "start_time": "Start time",
+            "duration_minutes": "Duration",
+            "window_days": "Booking opens this many days before",
+            "frequency": "Repeat",
+            "season_start": "Season starts",
+            "season_end": "Season ends (optional)",
+            "title": "Booking title shown in Skedda",
+            "strategy": "Strategy",
+            "notify_targets": "Notify these services with the result"
+          },
+          "data_description": {
+            "space_id": "Read from the venue. Free text here means the venue could not be reached.",
+            "duration_minutes": "The venue allows {quota} minutes per week.",
+            "window_days": "This venue opens bookings {horizon} days ahead. Match it exactly: earlier is refused, later is too late.",
+            "strategy": "Precise fires the request the instant the window opens. Immediate fires once and retries."
+          }
+        },
+        "reconfigure": {
+          "title": "Edit the booking job",
+          "description": "The job books the same slot every week. This venue opens bookings {horizon} days ahead and allows {quota} minutes per week.",
+          "data": {
+            "name": "Job name",
+            "space_id": "Court",
+            "weekday": "Day of week",
+            "start_time": "Start time",
+            "duration_minutes": "Duration",
+            "window_days": "Booking opens this many days before",
+            "frequency": "Repeat",
+            "season_start": "Season starts",
+            "season_end": "Season ends (optional)",
+            "title": "Booking title shown in Skedda",
+            "strategy": "Strategy",
+            "notify_targets": "Notify these services with the result"
+          },
+          "data_description": {
+            "space_id": "Read from the venue. Free text here means the venue could not be reached.",
+            "duration_minutes": "The venue allows {quota} minutes per week.",
+            "window_days": "This venue opens bookings {horizon} days ahead. Match it exactly: earlier is refused, later is too late.",
+            "strategy": "Precise fires the request the instant the window opens. Immediate fires once and retries."
+          }
+        }
+      },
+      "error": {
+        "over_quota": "Longer than the venue's weekly allowance, so this job could never be booked.",
+        "beyond_horizon": "Earlier than the venue opens its bookings, so every attempt would be refused."
+      },
+      "abort": {
+        "reconfigure_successful": "The booking job was updated."
+      }
+    }
   }
 }

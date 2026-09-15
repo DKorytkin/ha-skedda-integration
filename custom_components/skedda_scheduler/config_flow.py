@@ -11,17 +11,30 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    ConfigSubentryFlow,
+)
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.core import callback
 
 from .api.errors import SkeddaAuthError, SkeddaConnectionError, SkeddaError
-from .const import CONF_ALIAS, CONF_VENUE, CONF_VENUE_TIMEZONE, DOMAIN
+from .const import (
+    CONF_ALIAS,
+    CONF_VENUE,
+    CONF_VENUE_TIMEZONE,
+    DOMAIN,
+    SUBENTRY_TYPE_JOB,
+)
 from .core.provider import VenueRules
 
 # Imported as a module, not by name: validate_credentials is the seam the
 # flow's tests patch, and a from-import would bind it here at import time.
 from .flows import account
 from .flows.account import STEP_REAUTH_SCHEMA, STEP_USER_SCHEMA, normalise, unique_id_for
+from .flows.job import JobSubentryFlowHandler
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,6 +43,14 @@ class SkeddaConfigFlow(ConfigFlow, domain=DOMAIN):
     """Collects one Skedda account per config entry."""
 
     VERSION = 1
+
+    @classmethod
+    @callback
+    def async_get_supported_subentry_types(
+        cls, config_entry: ConfigEntry
+    ) -> dict[str, type[ConfigSubentryFlow]]:
+        """Booking jobs are subentries: many per account, added after setup."""
+        return {SUBENTRY_TYPE_JOB: JobSubentryFlowHandler}
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Add an account."""

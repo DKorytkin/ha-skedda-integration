@@ -24,7 +24,13 @@ from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.skedda_scheduler.api import endpoints
-from custom_components.skedda_scheduler.const import CONF_ALIAS, CONF_VENUE, DOMAIN
+from custom_components.skedda_scheduler.const import (
+    CONF_ALIAS,
+    CONF_VENUE,
+    CONF_VENUE_TIMEZONE,
+    DOMAIN,
+)
+from custom_components.skedda_scheduler.core.provider import Space, VenueRules
 
 
 @dataclass
@@ -140,11 +146,21 @@ def auto_enable_custom_integrations(enable_custom_integrations: object) -> None:
     return None
 
 
+VENUE_RULES = VenueRules(
+    timezone="Europe/Kyiv",
+    slot_minutes=60,
+    max_days_ahead=14,
+    weekly_quota_minutes=60,
+)
+
+SPACES = (Space(id="2000001", name="Court 1"), Space(id="2000002", name="Court 2"))
+
 ENTRY_DATA = {
     CONF_VENUE: "myclub",
     CONF_EMAIL: "user@example.com",
     CONF_PASSWORD: "secret",
     CONF_ALIAS: "Main account (Oleh)",
+    CONF_VENUE_TIMEZONE: "Europe/Kyiv",
 }
 
 
@@ -164,7 +180,10 @@ def mock_provider() -> Iterator[AsyncMock]:
     """Patch SkeddaProvider everywhere the integration constructs one."""
     provider = AsyncMock()
     provider.is_authenticated = True
-    provider.list_spaces.return_value = []
+    # Mirrors the captured venue: hour-long slots, a fortnight's horizon and an
+    # hour a week. Defaults that match reality catch the mistakes that matter.
+    provider.venue_settings.return_value = VENUE_RULES
+    provider.list_spaces.return_value = list(SPACES)
     provider.list_bookings.return_value = []
     with patch("custom_components.skedda_scheduler.SkeddaProvider", return_value=provider):
         yield provider
