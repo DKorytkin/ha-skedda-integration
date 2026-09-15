@@ -98,12 +98,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bo
         semaphore=asyncio.Semaphore(1),
         account_device_id=account_device.id,
     )
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
+    # Before the platforms: an entity that asks the scheduler what a job is
+    # doing would otherwise be created while there is nothing to ask, and
+    # would report "out of season" until the next poll.
     scheduler = JobScheduler(hass, entry)
     entry.runtime_data.scheduler = scheduler
     scheduler.async_sync_jobs()
     entry.async_on_unload(scheduler.async_shutdown)
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 

@@ -30,6 +30,7 @@ from custom_components.skedda_scheduler.const import (
     MAX_ATTEMPTS_PER_RUN,
     SUBENTRY_TYPE_JOB,
 )
+from custom_components.skedda_scheduler.coordinator import IDLE_INTERVAL, UPDATE_INTERVAL
 from custom_components.skedda_scheduler.core.job import BookingJob
 from custom_components.skedda_scheduler.core.provider import Booking
 from custom_components.skedda_scheduler.core.recurrence import Frequency, RecurrenceRule
@@ -39,6 +40,7 @@ from custom_components.skedda_scheduler.scheduler import (
     CATCH_UP_DELAY,
     RATE_LIMIT_BACKOFF_SECONDS,
     JobRunner,
+    JobScheduler,
 )
 from custom_components.skedda_scheduler.store import AttemptStore
 
@@ -64,16 +66,26 @@ BOOKING = Booking(
 
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
 
+#: What the short form collects.
 JOB_INPUT = {
-    "name": "Tuesday 18:00",
     "space_id": "2000001",
-    "weekday": "1",
+    "start_date": "2026-09-01",
     "start_time": "18:00:00",
     "duration_minutes": 60,
-    "window_days": 14,
     "frequency": "weekly",
-    "season_start": "2026-09-01",
-    "title": "Tennis (auto)",
+    "advanced": False,
+}
+
+#: What the flow stores once its defaults are filled in.
+STORED_JOB = {
+    "space_id": "2000001",
+    "start_date": "2026-09-01",
+    "start_time": "18:00:00",
+    "duration_minutes": 60,
+    "frequency": "weekly",
+    "name": "Court 1 · Tuesdays 18:00",
+    "title": "Court 1 · Tuesdays 18:00",
+    "window_days": 14,
     "strategy": "precise",
 }
 
@@ -356,7 +368,7 @@ async def test_a_job_stored_in_a_shape_we_cannot_build_is_skipped_not_fatal(
     future config version can.
     """
     mock_entry.add_to_hass(hass)
-    for index, data in enumerate(({**JOB_INPUT, "season_start": "not-a-date"}, JOB_INPUT)):
+    for index, data in enumerate(({**STORED_JOB, "start_date": "not-a-date"}, STORED_JOB)):
         hass.config_entries.async_add_subentry(
             mock_entry,
             ConfigSubentry(
@@ -409,7 +421,7 @@ async def test_running_a_known_job_now_goes_through_the_scheduler(
     hass.config_entries.async_add_subentry(
         mock_entry,
         ConfigSubentry(
-            data=JOB_INPUT,
+            data=STORED_JOB,
             subentry_id="sub-1",
             subentry_type=SUBENTRY_TYPE_JOB,
             title="Tuesday 18:00",
@@ -562,3 +574,54 @@ async def test_arming_never_schedules_a_moment_that_is_already_past(
 
     assert armed is not None
     assert armed > dt_util.utcnow()
+
+
+async def test_the_scheduler_tells_the_coordinator_when_the_next_booking_is(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """The scheduler is the only thing that knows when this account is busy.
+
+    Without that the coordinator would either poll all year for nothing or
+    sleep through the hour that matters.
+    """
+    mock_entry.add_to_hass(hass)
+    hass.config_entries.async_add_subentry(
+        mock_entry,
+        ConfigSubentry(
+            data=STORED_JOB,
+            subentry_id="sub-1",
+            subentry_type=SUBENTRY_TYPE_JOB,
+            title="Tuesdays",
+            unique_id=None,
+        ),
+    )
+    await hass.config_entries.async_setup(mock_entry.entry_id)
+    await hass.async_block_till_done()
+
+    coordinator = mock_entry.runtime_data.coordinator
+    runner = mock_entry.runtime_data.scheduler.runner_for("sub-1")
+
+    assert runner.armed_for is not None
+    assert coordinator.update_interval == UPDATE_INTERVAL
+
+
+async def test_removing_every_job_lets_the_account_go_quiet(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    mock_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(mock_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert mock_entry.runtime_data.coordinator.update_interval == IDLE_INTERVAL
+
+
+async def test_publishing_the_next_arming_survives_an_account_that_never_loaded(
+    hass: HomeAssistant, mock_entry: MockConfigEntry
+) -> None:
+    """Unloading tears down runtime data, and shutdown announces afterwards."""
+    mock_entry.add_to_hass(hass)
+    scheduler = JobScheduler(hass, mock_entry)
+
+    scheduler.async_shutdown()
+
+    assert scheduler.runners == {}

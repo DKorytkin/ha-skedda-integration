@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import timedelta, tzinfo
+from datetime import datetime, timedelta, tzinfo
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -30,7 +30,18 @@ _LOGGER = logging.getLogger(__name__)
 
 #: Often enough to notice someone else's cancellation freeing a slot, rare
 #: enough to stay a well-behaved client of a service that never invited us.
+#: Used only when a booking is close: see async_note_next_arming.
 UPDATE_INTERVAL = timedelta(minutes=15)
+#: A booking is coming, but not today.
+DISTANT_INTERVAL = timedelta(hours=1)
+#: Nothing is due at all - out of season, or every job disabled. Not "never":
+#: a password that stopped working is better discovered in February than on
+#: the morning the season opens.
+IDLE_INTERVAL = timedelta(hours=12)
+#: How close an arming has to be before the frequent poll is worth it.
+IMMINENT = timedelta(hours=1)
+#: Beyond this, hourly is plenty.
+DISTANT = timedelta(days=1)
 #: Comfortably past any venue's booking horizon (14 days at the venue this was
 #: built against), so a job's next slot is always inside the polled range.
 LOOKAHEAD = timedelta(days=30)
@@ -62,6 +73,32 @@ class SkeddaCoordinator(DataUpdateCoordinator[SkeddaData]):
         )
         self.provider = provider
         self.authenticated = False
+        # Nothing is known to be due until a scheduler says so, and polling a
+        # venue every quarter hour on the chance is thousands of requests a
+        # month that nobody asked for.
+        self.update_interval = IDLE_INTERVAL
+
+    @callback
+    def async_note_next_arming(self, when: datetime | None) -> None:
+        """Set the poll rate from how soon the next booking attempt is.
+
+        Called by the scheduler whenever it arms or disarms a job: the
+        scheduler is the only thing that knows when this account next has
+        something to do.
+        """
+        self.update_interval = self._interval_for(when)
+        _LOGGER.debug("Next arming %s; polling every %s", when, self.update_interval)
+
+    @staticmethod
+    def _interval_for(when: datetime | None) -> timedelta:
+        if when is None:
+            return IDLE_INTERVAL
+        remaining = when - dt_util.utcnow()
+        if remaining <= IMMINENT:
+            return UPDATE_INTERVAL
+        if remaining <= DISTANT:
+            return DISTANT_INTERVAL
+        return IDLE_INTERVAL
 
     async def _async_update_data(self) -> SkeddaData:
         try:

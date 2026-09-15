@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntry
@@ -93,6 +93,7 @@ class JobRunner:
         sinks: Sequence[ResultSink],
         store: AttemptStore,
         semaphore: asyncio.Semaphore,
+        on_schedule: Callable[[], None] | None = None,
     ) -> None:
         self.hass = hass
         self.entry = entry
@@ -101,6 +102,7 @@ class JobRunner:
         self.sinks = list(sinks)
         self.store = store
         self.semaphore = semaphore
+        self._on_schedule = on_schedule
         self.armed_for: datetime | None = None
         #: The slot the last run fired at, so the next arming moves past it.
         self.attempted_slot: datetime | None = None
@@ -141,6 +143,7 @@ class JobRunner:
         # arms one loops however it came about.
         self.armed_for = max(arm_at, now + CATCH_UP_DELAY)
         self._unsub = async_track_point_in_utc_time(self.hass, self._async_armed, self.armed_for)
+        self._announce()
         _LOGGER.debug(
             "Job %s armed for %s (slot %s, window opens %s)",
             self.job.job_id,
@@ -162,6 +165,13 @@ class JobRunner:
             self._unsub()
             self._unsub = None
         self.armed_for = None
+        self._announce()
+
+    @callback
+    def _announce(self) -> None:
+        """Tell whoever cares that this job's next attempt time changed."""
+        if self._on_schedule is not None:
+            self._on_schedule()
 
     async def async_run_now(self) -> BookingOutcome:
         """Run the job immediately, as the service and the button do."""
@@ -389,15 +399,33 @@ class JobScheduler:
                 sinks=sinks,
                 store=runtime.store,
                 semaphore=runtime.semaphore,
+                on_schedule=self._async_publish_next_arming,
             )
             self._runners[subentry_id] = runner
             runner.async_schedule()
+        self._async_publish_next_arming()
 
     @callback
     def async_shutdown(self) -> None:
         for runner in self._runners.values():
             runner.async_cancel()
         self._runners.clear()
+        self._async_publish_next_arming()
+
+    @callback
+    def _async_publish_next_arming(self) -> None:
+        """Let the coordinator match its poll rate to the nearest booking.
+
+        Nothing else knows when this account is busy: out of season there is
+        no reason to ask the venue anything, and in the hour before a window
+        there is every reason.
+        """
+        try:
+            coordinator = self.entry.runtime_data.coordinator
+        except AttributeError:
+            return
+        armed = [runner.armed_for for runner in self._runners.values() if runner.armed_for]
+        coordinator.async_note_next_arming(min(armed) if armed else None)
 
     async def async_run_now(self, job_id: str) -> BookingOutcome | None:
         runner = self._runners.get(job_id)

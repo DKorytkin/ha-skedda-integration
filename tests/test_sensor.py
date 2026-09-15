@@ -11,6 +11,7 @@ from tests.helpers import setup_with_job
 
 NEXT_RUN = "sensor.tuesday_18_00_next_run"
 LAST_OUTCOME = "sensor.tuesday_18_00_last_outcome"
+STATUS = "sensor.tuesday_18_00_status"
 
 
 async def test_each_job_gets_a_next_run_and_last_outcome_sensor(
@@ -112,3 +113,33 @@ async def test_the_account_and_its_jobs_are_services_not_things_in_a_room(
     )
     assert account.entry_type is dr.DeviceEntryType.SERVICE
     assert job.entry_type is dr.DeviceEntryType.SERVICE
+
+
+async def test_a_job_says_plainly_whether_it_is_going_to_do_anything(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Out of season a job is not broken, it is asleep - and should say so.
+
+    "Next run: unknown" reads like a fault. The court is shut for the winter
+    and the subscription is unpaid; that is a state, not a failure.
+    """
+    await setup_with_job(hass, mock_entry)
+    assert hass.states.get(STATUS).state == "armed"
+
+    await hass.services.async_call(
+        "switch",
+        "turn_off",
+        {"entity_id": "switch.tuesday_18_00_job_enabled"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(STATUS).state == "disabled"
+
+
+async def test_a_job_past_its_season_reads_as_out_of_season(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    await setup_with_job(hass, mock_entry, season_end="2026-09-02")
+
+    assert hass.states.get(STATUS).state == "out_of_season"
+    assert hass.states.get(NEXT_RUN).state == "unknown"

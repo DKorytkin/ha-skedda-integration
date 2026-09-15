@@ -14,7 +14,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import SkeddaConfigEntry
-from .const import SUBENTRY_TYPE_JOB
+from .const import CONF_ENABLED, SUBENTRY_TYPE_JOB
 from .coordinator import SkeddaCoordinator
 from .core.job import BookingJob
 from .entity import SkeddaJobEntity
@@ -24,6 +24,17 @@ NEXT_RUN = SensorEntityDescription(
     key="next_run", translation_key="next_run", device_class=SensorDeviceClass.TIMESTAMP
 )
 LAST_OUTCOME = SensorEntityDescription(key="last_outcome", translation_key="last_outcome")
+
+#: Why a job is not about to do anything, in words rather than by absence.
+STATUS_ARMED = "armed"
+STATUS_DISABLED = "disabled"
+STATUS_OUT_OF_SEASON = "out_of_season"
+STATUS = SensorEntityDescription(
+    key="status",
+    translation_key="status",
+    device_class=SensorDeviceClass.ENUM,
+    options=[STATUS_ARMED, STATUS_DISABLED, STATUS_OUT_OF_SEASON],
+)
 
 
 async def async_setup_entry(
@@ -47,6 +58,7 @@ async def async_setup_entry(
             [
                 NextRunSensor(runtime.coordinator, job, entry),
                 LastOutcomeSensor(runtime.coordinator, job, entry),
+                JobStatusSensor(runtime.coordinator, job, entry),
             ],
             config_subentry_id=subentry_id,
         )
@@ -101,3 +113,32 @@ class LastOutcomeSensor(SkeddaJobEntity, SensorEntity):
             "attempts": last.get("attempts"),
             "finished_at": last.get("finished_at"),
         }
+
+
+class JobStatusSensor(SkeddaJobEntity, SensorEntity):
+    """Whether this job is going to do anything, and if not, why not."""
+
+    entity_description = STATUS
+
+    def __init__(
+        self, coordinator: SkeddaCoordinator, job: BookingJob, entry: SkeddaConfigEntry
+    ) -> None:
+        super().__init__(coordinator, job, entry.runtime_data.account_device_id)
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}:{job.job_id}:status"
+
+    @property
+    def native_value(self) -> str:
+        """Out of season is a state, not a fault.
+
+        The court shuts for the winter and the subscription lapses; a job that
+        showed only "next run: unknown" would read like something broken.
+        """
+        subentry = self._entry.subentries.get(self.job.job_id)
+        if subentry is not None and not subentry.data.get(CONF_ENABLED, True):
+            return STATUS_DISABLED
+        scheduler = self._entry.runtime_data.scheduler
+        runner = scheduler.runner_for(self.job.job_id) if scheduler else None
+        if runner is not None and runner.armed_for is not None:
+            return STATUS_ARMED
+        return STATUS_OUT_OF_SEASON

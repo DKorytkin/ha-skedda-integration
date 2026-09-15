@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from freezegun import freeze_time
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.skedda_scheduler.api.errors import (
@@ -17,6 +18,8 @@ from custom_components.skedda_scheduler.api.errors import (
     SkeddaConnectionError,
 )
 from custom_components.skedda_scheduler.coordinator import (
+    DISTANT_INTERVAL,
+    IDLE_INTERVAL,
     LOOKAHEAD,
     UPDATE_INTERVAL,
     SkeddaCoordinator,
@@ -152,12 +155,13 @@ async def test_a_session_that_expired_mid_poll_is_re_established(
     mock_provider.authenticate.assert_awaited_once()
 
 
-async def test_the_poll_interval_is_fifteen_minutes(
+async def test_an_account_with_nothing_due_polls_rarely(
     hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
 ) -> None:
-    """Often enough to notice a cancellation, rare enough to stay a good guest."""
+    """The frequent poll is for the hour before a window, not for all year."""
     coordinator = await setup_entry(hass, mock_entry)
-    assert coordinator.update_interval == UPDATE_INTERVAL == timedelta(minutes=15)
+    assert coordinator.update_interval == IDLE_INTERVAL == timedelta(hours=12)
+    assert timedelta(minutes=15) == UPDATE_INTERVAL
 
 
 @freeze_time("2026-09-15T21:30:00Z")
@@ -173,3 +177,51 @@ async def test_an_unresolvable_venue_timezone_does_not_stop_the_poll(
     assert coordinator.last_update_success is True
     window = mock_provider.list_bookings.await_args.args[0]
     assert window.start.replace(tzinfo=None) == datetime(2026, 9, 15, 21, 30)
+
+
+async def test_the_poll_slows_down_when_nothing_is_due(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Out of season there is nothing to watch for.
+
+    Polling a venue every quarter of an hour all winter is thousands of
+    requests nobody asked for, against a service that never invited us.
+    """
+    coordinator = await setup_entry(hass, mock_entry)
+
+    assert coordinator.update_interval == IDLE_INTERVAL
+
+
+async def test_the_poll_speeds_up_as_a_window_approaches(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Close to an opening the venue's state is worth knowing accurately."""
+    coordinator = await setup_entry(hass, mock_entry)
+    now = dt_util.utcnow()
+
+    coordinator.async_note_next_arming(now + timedelta(hours=5))
+    assert coordinator.update_interval == DISTANT_INTERVAL
+
+    coordinator.async_note_next_arming(now + timedelta(minutes=20))
+    assert coordinator.update_interval == UPDATE_INTERVAL
+
+
+async def test_a_job_that_will_never_fire_again_leaves_the_poll_idle(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    coordinator = await setup_entry(hass, mock_entry)
+
+    coordinator.async_note_next_arming(None)
+
+    assert coordinator.update_interval == IDLE_INTERVAL
+
+
+async def test_a_booking_further_off_than_a_day_polls_at_the_idle_rate(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """A fortnight before the window there is nothing to watch for yet."""
+    coordinator = await setup_entry(hass, mock_entry)
+
+    coordinator.async_note_next_arming(dt_util.utcnow() + timedelta(days=10))
+
+    assert coordinator.update_interval == IDLE_INTERVAL

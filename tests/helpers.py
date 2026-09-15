@@ -13,12 +13,11 @@ from custom_components.skedda_scheduler.const import SUBENTRY_TYPE_JOB
 JOB_DATA: dict[str, Any] = {
     "name": "Tuesday 18:00",
     "space_id": "2000001",
-    "weekday": "1",
+    "start_date": "2026-09-01",
     "start_time": "18:00:00",
     "duration_minutes": 60,
     "window_days": 14,
     "frequency": "weekly",
-    "season_start": "2026-09-01",
     "season_end": None,
     "title": "Tennis (auto)",
     "strategy": "precise",

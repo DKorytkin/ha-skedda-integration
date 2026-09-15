@@ -106,3 +106,56 @@ def test_the_venue_timezone_falls_back_when_the_account_never_loaded(
 
     blank = MockConfigEntry(domain=mock_entry.domain, data={})
     assert venue_timezone_for(hass, blank) == hass.config.time_zone
+
+
+DATED: dict[str, Any] = {
+    "name": "Tennis",
+    "space_id": "2000001",
+    "start_date": "2026-09-29",
+    "start_time": "20:00:00",
+    "duration_minutes": 60,
+    "window_days": 14,
+    "frequency": "once",
+    "title": "Tennis",
+}
+
+
+def test_a_dated_job_keeps_the_date_it_was_given() -> None:
+    """The form asks for a date, the way a calendar does."""
+    job = build_job("sub-1", DATED, "Europe/Kyiv")
+
+    assert job.recurrence.frequency is Frequency.ONCE
+    assert job.recurrence.season_start == date(2026, 9, 29)
+    assert job.recurrence.season_end == date(2026, 9, 29)
+
+
+def test_a_repeating_job_takes_its_weekday_from_the_date() -> None:
+    """29 September 2026 is a Tuesday, so weekly means every Tuesday.
+
+    Deriving it removes a field that could contradict the date the user chose.
+    """
+    job = build_job("sub-1", {**DATED, "frequency": "weekly"}, "Europe/Kyiv")
+
+    assert job.recurrence.weekday == 1
+    assert job.recurrence.season_start == date(2026, 9, 29)
+    assert job.recurrence.season_end is None
+
+
+def test_a_repeating_job_keeps_an_explicit_season() -> None:
+    """A court paid for until the end of autumn stops there."""
+    data = {**DATED, "frequency": "weekly", "season_end": "2026-11-30"}
+
+    job = build_job("sub-1", data, "Europe/Kyiv")
+
+    assert job.recurrence.season_end == date(2026, 11, 30)
+
+
+def test_a_job_stored_by_an_earlier_version_still_builds() -> None:
+    """v0.0.1 stored a weekday and a season start instead of a date.
+
+    Anyone who installed that release keeps their jobs across the upgrade.
+    """
+    job = build_job("sub-1", DATA, "Europe/Kyiv")
+
+    assert job.recurrence.weekday == 1
+    assert job.recurrence.season_start == date(2026, 9, 1)
