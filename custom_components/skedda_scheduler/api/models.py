@@ -1,0 +1,125 @@
+"""Transport DTOs.
+
+Field names and types here mirror live traffic captured 2026-09-15; see
+.claude/specs/skedda-api-contract.md. Two details are easy to get wrong:
+
+* **Ids are strings.** `"1011034"`, not `1011034`. The server echoes them back
+  as strings, so coercing to int makes later comparisons fail silently.
+* **Booking datetimes are naive venue-local**, with no offset and no trailing
+  Z. Only server audit stamps such as `createdDate` are UTC. Attaching a
+  timezone here would be a guess; the venue timezone lives in `/webs` and is
+  applied by the core layer, which knows it.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
+
+from .errors import ApiContractError
+
+
+def _require(payload: dict[str, Any], key: str) -> Any:
+    """Read a key the contract says is always present."""
+    if key not in payload:
+        raise ApiContractError(f"expected key {key!r} in payload, got keys {sorted(payload)}")
+    return payload[key]
+
+
+def _parse_local(payload: dict[str, Any], key: str) -> datetime:
+    """Parse a naive venue-local datetime, e.g. '2026-09-28T08:00:00'."""
+    raw = _require(payload, key)
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except (TypeError, ValueError) as err:
+        raise ApiContractError(f"key {key!r} is not an ISO datetime: {raw!r}") from err
+    if parsed.tzinfo is not None:
+        raise ApiContractError(
+            f"key {key!r} carried a timezone ({raw!r}); booking times are "
+            "expected to be naive venue-local"
+        )
+    return parsed
+
+
+@dataclass(frozen=True, slots=True)
+class SkeddaCredentials:
+    """One Skedda account, scoped to one venue subdomain."""
+
+    venue: str
+    email: str
+    password: str
+
+    def __repr__(self) -> str:
+        """Never let the password reach a log or a traceback."""
+        return f"SkeddaCredentials(venue={self.venue!r}, email={self.email!r})"
+
+
+@dataclass(frozen=True, slots=True)
+class SkeddaSession:
+    """An authenticated session.
+
+    `antiforgery_token` is scraped from the page HTML of the host being called
+    and is per page load, not per session.
+    """
+
+    cookies: dict[str, str]
+    antiforgery_token: str | None
+    expires_at: datetime | None
+
+    def is_expired(self, now: datetime) -> bool:
+        if self.expires_at is None:
+            return False
+        return now >= self.expires_at
+
+
+@dataclass(frozen=True, slots=True)
+class SkeddaSpace:
+    """A bookable space. Skedda calls these 'assets' in /webs."""
+
+    id: str
+    name: str
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> SkeddaSpace:
+        return cls(id=str(_require(payload, "id")), name=str(_require(payload, "name")))
+
+
+@dataclass(frozen=True, slots=True)
+class SkeddaBooking:
+    """An existing booking, as returned by /bookingslists and /bookings."""
+
+    id: str
+    space_ids: tuple[str, ...]
+    start: datetime
+    end: datetime
+    title: str
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> SkeddaBooking:
+        return cls(
+            id=str(_require(payload, "id")),
+            space_ids=tuple(str(x) for x in _require(payload, "spaces")),
+            start=_parse_local(payload, "start"),
+            end=_parse_local(payload, "end"),
+            # The venue does not require titles, so null is normal, not a
+            # contract violation.
+            title=payload.get("title") or "",
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SkeddaBookingRequest:
+    """A booking we intend to create.
+
+    `start` and `end` are timezone-aware venue-local; endpoints.py strips the
+    offset when serialising, so the conversion happens in exactly one place.
+    """
+
+    space_ids: tuple[str, ...]
+    start: datetime
+    end: datetime
+    title: str
+    venue_id: str
+    venueuser_id: str
+    lock_in_margin: int = 1
