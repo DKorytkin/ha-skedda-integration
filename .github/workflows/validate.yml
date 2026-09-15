@@ -21,3 +21,11 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+          # TODO: remove this once the integration is listed in
+          # home-assistant/brands. HACS wants an icon and a logo for the
+          # skedda_scheduler domain, submitted as a pull request to that
+          # repository; until then this check can only fail. Installing as a
+          # custom repository works without them - being listed in the default
+          # HACS catalogue does not. Drop the line, do not extend it: every
+          # other check here is one we intend to pass.
+          ignore: brands

@@ -74,3 +74,15 @@ A test that asserts something always true is worse than no test at all.
 - One logical change per commit, with a message that says why rather than what.
 - If behaviour changes, update the page under `docs/` that describes it in the same
   commit. Two copies of the truth drift; one does not.
+
+## Before the first public release
+
+One check is deliberately skipped in CI and needs closing before this integration
+can be listed in the default HACS catalogue:
+
+- **Brand assets.** `skedda_scheduler` is not in
+  [home-assistant/brands](https://github.com/home-assistant/brands), which wants an
+  icon and a logo submitted as a pull request there. Until that lands,
+  `.github/workflows/validate.yml` passes `ignore: brands` to the HACS action.
+  Installing as a custom repository works without it; being listed does not.
+  Remove the `ignore` line once the brands pull request is merged.
