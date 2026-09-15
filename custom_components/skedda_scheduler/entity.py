@@ -7,7 +7,7 @@ whole job at once.
 
 from __future__ import annotations
 
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_VENUE, DOMAIN
@@ -29,6 +29,9 @@ class SkeddaAccountEntity(CoordinatorEntity[SkeddaCoordinator]):
             name=entry.title,
             manufacturer="Skedda",
             model="Account",
+            # A login is not a thing in a room. Without this Home Assistant
+            # treats it as an appliance and asks which room it lives in.
+            entry_type=DeviceEntryType.SERVICE,
             configuration_url=f"https://{venue}.skedda.com",
         )
 
@@ -49,5 +52,6 @@ class SkeddaJobEntity(CoordinatorEntity[SkeddaCoordinator]):
             name=job.name,
             manufacturer="Skedda",
             model="Booking job",
+            entry_type=DeviceEntryType.SERVICE,
             via_device_id=account_device_id,
         )

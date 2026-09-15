@@ -88,6 +88,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bo
         name=entry.title,
         manufacturer="Skedda",
         model="Account",
+        entry_type=dr.DeviceEntryType.SERVICE,
         configuration_url=f"https://{entry.data[CONF_VENUE]}.skedda.com",
     )
     entry.runtime_data = SkeddaRuntimeData(

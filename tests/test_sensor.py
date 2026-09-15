@@ -87,3 +87,28 @@ async def test_each_job_is_its_own_device_under_the_account(
     assert account is not None
     assert job is not None
     assert job.via_device_id == account.id
+
+
+async def test_the_account_and_its_jobs_are_services_not_things_in_a_room(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Neither an account nor a booking job sits anywhere in the house.
+
+    Without this Home Assistant treats them as appliances and offers to file
+    them in a room, which is a question with no sensible answer.
+    """
+    from homeassistant.helpers import device_registry as dr
+
+    from custom_components.skedda_scheduler.const import DOMAIN
+
+    subentry_id = await setup_with_job(hass, mock_entry)
+    registry = dr.async_get(hass)
+
+    account = registry.async_get_device_by_identifier(
+        (DOMAIN, mock_entry.entry_id), mock_entry.entry_id
+    )
+    job = registry.async_get_device_by_identifier(
+        (DOMAIN, f"{mock_entry.entry_id}:{subentry_id}"), mock_entry.entry_id
+    )
+    assert account.entry_type is dr.DeviceEntryType.SERVICE
+    assert job.entry_type is dr.DeviceEntryType.SERVICE
