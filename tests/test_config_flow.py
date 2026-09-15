@@ -17,6 +17,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.skedda_scheduler.api import endpoints
 from custom_components.skedda_scheduler.api.errors import (
     ApiContractError,
+    SignInBlockedError,
     SkeddaAuthError,
     SkeddaConnectionError,
     SkeddaError,
@@ -265,3 +266,16 @@ async def test_validate_credentials_retries_once_when_the_venue_session_lags(
     # The retry has to sign in again, not merely re-ask: the stale session is
     # exactly what the first call rejected.
     assert len(skedda.requests_for(endpoints.LOGIN.method, endpoints.LOGIN.path)) == 2
+
+
+async def test_a_refused_attempt_does_not_send_the_user_to_change_a_working_password(
+    hass: HomeAssistant,
+) -> None:
+    """Skedda sometimes declines the sign-in itself; that is not invalid_auth."""
+    result = await start_user_flow(hass)
+
+    with patch(VALIDATE, side_effect=SignInBlockedError("potential security problem")):
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], USER_INPUT)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "sign_in_blocked"}

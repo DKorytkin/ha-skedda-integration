@@ -23,6 +23,16 @@ class AuthExpiredError(SkeddaAuthError):
     """The session lapsed mid-run. Re-authenticate, then retry once."""
 
 
+class SignInBlockedError(SkeddaError):
+    """Skedda refused the sign-in attempt itself, not the credentials.
+
+    Observed live 2026-09-16: "our super detectives found a potential security
+    problem ... this can happen if you've logged in/out on another tab". The
+    password is beside the point, so this must not be reported as a wrong one
+    and must not ask the user to type it again.
+    """
+
+
 class TooEarlyError(SkeddaError):
     """The booking window has not opened yet. Retry after a short pause."""
 

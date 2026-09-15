@@ -20,7 +20,12 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import callback
 
-from .api.errors import SkeddaAuthError, SkeddaConnectionError, SkeddaError
+from .api.errors import (
+    SignInBlockedError,
+    SkeddaAuthError,
+    SkeddaConnectionError,
+    SkeddaError,
+)
 from .const import (
     CONF_ALIAS,
     CONF_VENUE,
@@ -127,6 +132,11 @@ class SkeddaConfigFlow(ConfigFlow, domain=DOMAIN):
             rules = await account.validate_credentials(
                 self.hass, data[CONF_VENUE], data[CONF_EMAIL], data[CONF_PASSWORD]
             )
+        except SignInBlockedError:
+            # Skedda declined the attempt, not the password. Checked before
+            # SkeddaAuthError would be, though it is not one - the two must
+            # never be confused in either direction.
+            return None, {"base": "sign_in_blocked"}
         except SkeddaAuthError:
             return None, {"base": "invalid_auth"}
         except SkeddaConnectionError:

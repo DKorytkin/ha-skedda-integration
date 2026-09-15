@@ -25,6 +25,7 @@ from .clock import ClockSync, parse_date_header
 from .errors import (
     ApiContractError,
     AuthExpiredError,
+    SignInBlockedError,
     SkeddaAuthError,
     SkeddaConnectionError,
 )
@@ -50,6 +51,11 @@ _TOKEN_INPUT = re.compile(rf'name="{endpoints.ANTIFORGERY_INPUT}"[^>]*\bvalue="(
 # violation - see the contract doc, "422 is not only a booking-rule status".
 _READ_PATHS = frozenset({endpoints.SPACES.path, endpoints.BOOKINGS_LIST.path})
 
+#: Skedda's own words when it declines to process a sign-in at all. Matching
+#: prose is unpleasant, but the alternative is reporting a working password as
+#: wrong, and this response carries nothing else to go on.
+_SECURITY_REFUSAL = "potential security problem"
+
 
 class SkeddaClient:
     """One authenticated conversation with one Skedda venue."""
@@ -59,6 +65,10 @@ class SkeddaClient:
         self._credentials = credentials
         self._session: SkeddaSession | None = None
         self._identity: SkeddaIdentity | None = None
+        #: The venue host issues its own antiforgery token; the sign-in host's
+        #: is not accepted there. Cached for the session: fetching a page
+        #: before every request would double the cost of a burst.
+        self._venue_token: str | None = None
         self.clock = ClockSync()
 
     @property
@@ -82,6 +92,7 @@ class SkeddaClient:
         self._http.cookie_jar.clear()
         self._session = None
         self._identity = None
+        self._venue_token = None
         token = await self._fetch_antiforgery_token(
             endpoints.LOGIN_HOST + endpoints.LOGIN_PAGE.path
         )
@@ -99,6 +110,11 @@ class SkeddaClient:
         if failure is not None:
             self._session = None
             detail = endpoints.error_detail(body) or f"login failed with status {status}"
+            if failure is ApiContractError and _SECURITY_REFUSAL in detail.lower():
+                # Not the credentials: Skedda declined to process the attempt.
+                # Asking for a new password would send the user to change one
+                # that works.
+                raise SignInBlockedError(detail)
             if failure is ApiContractError:
                 # Captured live 2026-09-15: a wrong password comes back as 422
                 # carrying the same error envelope as a booking-rule violation.
@@ -132,7 +148,7 @@ class SkeddaClient:
         status, body, headers = await self._send(
             endpoint,
             host=endpoints.base_url(self._credentials.venue),
-            token=self._session.antiforgery_token,
+            token=await self._venue_antiforgery_token(),
             params=params,
             json_body=json_body,
         )
@@ -233,6 +249,28 @@ class SkeddaClient:
         if issubclass(failure, AuthExpiredError):
             self._session = None
             self._identity = None
+            self._venue_token = None
+
+    async def _venue_antiforgery_token(self) -> str | None:
+        """The token this venue will accept, read from one of its own pages.
+
+        The contract is explicit that the token is per page load and
+        host-scoped. Offering the sign-in host's token to the venue asks one
+        server to accept another's credential, and Skedda answers that with a
+        page about a "potential security problem" rather than anything a
+        client can act on.
+        """
+        if self._venue_token is not None:
+            return self._venue_token
+        venue_home = endpoints.base_url(self._credentials.venue) + "/"
+        try:
+            self._venue_token = await self._fetch_antiforgery_token(venue_home)
+        except ApiContractError:
+            # A venue that serves no token must not cost the user every
+            # booking; the sign-in token is the best remaining guess.
+            _LOGGER.debug("No antiforgery token on %s; using the sign-in token", venue_home)
+            self._venue_token = self._session.antiforgery_token if self._session else None
+        return self._venue_token
 
     async def _fetch_antiforgery_token(self, url: str) -> str:
         status, text, _ = await self._get_text(url)

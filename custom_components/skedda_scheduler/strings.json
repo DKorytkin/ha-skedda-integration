@@ -40,7 +40,8 @@
     "error": {
       "invalid_auth": "Skedda rejected the email or password.",
       "cannot_connect": "Could not reach the venue. Check the venue name and your connection.",
-      "unknown": "The venue answered in a way this integration did not expect. Check the logs."
+      "unknown": "The venue answered in a way this integration did not expect. Check the logs.",
+      "sign_in_blocked": "Skedda declined the sign-in attempt itself, not your password. This usually clears on its own; wait a few minutes and try again."
     },
     "abort": {
       "already_configured": "This account is already set up.",
