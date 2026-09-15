@@ -4,7 +4,7 @@
 - **Date:** 2026-09-15
 - **Domain:** `skedda_scheduler`
 - **Repo:** `DKorytkin/ha-skedda-integration`
-- **Supersedes:** `.claude/specs/Init.md` (kept as the original requirements brief)
+- **Supersedes:** `docs/specs/Init.md` (kept as the original requirements brief)
 
 ---
 
@@ -67,7 +67,7 @@ submission is a formality rather than a rewrite.
 | D4 | Config entry per account; booking job as a **config subentry** | Native multi-account, native per-job UI CRUD, per-job devices and entities. No hand-rolled list editor in an options flow. |
 | D5 | `core/` has zero `homeassistant` imports | The hardest logic (recurrence, window computation, burst timing) becomes testable in milliseconds without booting HA. |
 | D6 | v0.1 scope: multi-account, recurrence, notifications, sniper | Chosen by the user. Fallback spaces and the calendar entity move to v0.2. |
-| D7 | Minimum Home Assistant 2025.9.0 | `ConfigSubentryFlow.async_update_reload_and_abort` is only stable from 2025.9. |
+| D7 | Minimum Home Assistant 2026.3.0, Python 3.14 | Config subentries need 2025.9+, but HA 2026.3 and later require Python 3.14.2, so a 2025.9 floor would mean developing against a year-old release. Aligning the floor with the Python boundary removes an entire class of "does this API exist yet?" questions. Revised 2026-09-15 during Task 1; supersedes the original 2025.9.0 / Python 3.13 decision. |
 
 ## 4. Architecture
 
@@ -255,7 +255,7 @@ Coverage target: 90% overall, 100% on `core/`.
 
 ## 7. Distribution requirements (HACS default bar)
 
-- `hacs.json` at repo root: `name`, `render_readme`, `homeassistant: "2025.9.0"`
+- `hacs.json` at repo root: `name`, `render_readme`, `homeassistant: "2026.3.0"`
 - `manifest.json`: `domain`, `name`, `codeowners`, `config_flow: true`,
   `documentation`, `issue_tracker`, `integration_type: "service"`,
   `iot_class: "cloud_polling"`, `requirements`, `version`, `quality_scale`

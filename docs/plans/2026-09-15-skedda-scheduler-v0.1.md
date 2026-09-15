@@ -6,15 +6,15 @@
 
 **Architecture:** Three layers with downward-only dependencies — `api/` (aiohttp transport for Skedda's private API, the volatile part), `core/` (pure-Python domain: recurrence, booking-window maths, burst timing; zero `homeassistant` imports), and the Home Assistant layer (config/subentry flows, coordinator, scheduler, sinks, entities). One config entry per Skedda account; one config subentry per booking job.
 
-**Tech Stack:** Python 3.13, `aiohttp`, Home Assistant 2025.9+, `pytest` + `pytest-asyncio` + `pytest-homeassistant-custom-component`, `aioresponses`, `freezegun`, `syrupy`, `ruff`, `mypy`, `uv`, GitHub Actions (hassfest + HACS validate).
+**Tech Stack:** Python 3.14, `aiohttp`, Home Assistant 2026.3+, `pytest` + `pytest-asyncio` + `pytest-homeassistant-custom-component`, `aioresponses`, `freezegun`, `syrupy`, `ruff`, `mypy`, `uv`, GitHub Actions (hassfest + HACS validate).
 
-**Spec:** `.claude/specs/2026-09-15-skedda-scheduler-design.md` — read it before Task 1. The original requirements brief is `.claude/specs/Init.md`; where the two disagree, the design spec wins and explains why.
+**Spec:** `docs/specs/2026-09-15-skedda-scheduler-design.md` — read it before Task 1. The original requirements brief is `docs/specs/Init.md`; where the two disagree, the design spec wins and explains why.
 
 ## Global Constraints
 
 - Domain is `skedda_scheduler`. Repo is `DKorytkin/ha-skedda-integration`. Integration code lives under `custom_components/skedda_scheduler/`.
-- Minimum Home Assistant version is **2025.9.0** (`ConfigSubentryFlow.async_update_reload_and_abort` is only stable from there). Never use an API newer than that.
-- Python **3.13**. All I/O is `async`. No blocking calls inside the event loop.
+- Minimum Home Assistant version is **2026.3.0**. Config subentries need 2025.9+, but HA 2026.3 is the first release requiring Python 3.14.2, so the floor is aligned with the toolchain. Never use an API newer than that.
+- Python **3.14**. All I/O is `async`. No blocking calls inside the event loop.
 - `core/` must not import `homeassistant` or `aiohttp`. `api/` must not import `core/` or `homeassistant`. Enforced by `tests/test_layering.py`, which runs in CI.
 - Every URL, HTTP method, header name and request/response field name for Skedda lives in `custom_components/skedda_scheduler/api/endpoints.py` and **nowhere else**.
 - Exception taxonomy lives in `api/errors.py`. `core/` never imports it; the HA layer may.
@@ -81,12 +81,12 @@
 name = "ha-skedda-integration"
 version = "0.1.0"
 description = "Skedda Scheduler integration for Home Assistant"
-requires-python = ">=3.13"
+requires-python = ">=3.14.2"
 dependencies = []
 
 [dependency-groups]
 dev = [
-  "homeassistant>=2025.9.0",
+  "homeassistant>=2026.3.0",
   "pytest>=8.3",
   "pytest-asyncio>=0.24",
   "pytest-cov>=6.0",
@@ -100,13 +100,13 @@ dev = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py313"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF", "SIM", "TID"]
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.14"
 strict = true
 warn_unused_ignores = true
 
@@ -127,7 +127,7 @@ addopts = "-q --cov=custom_components/skedda_scheduler --cov-report=term-missing
 ```json
 {
   "name": "Skedda Scheduler",
-  "homeassistant": "2025.9.0",
+  "homeassistant": "2026.3.0",
   "render_readme": true
 }
 ```
@@ -256,7 +256,7 @@ Create an empty `tests/__init__.py`.
 - [ ] **Step 5: Run the tests to verify the harness works**
 
 Run: `uv sync && uv run pytest tests/test_layering.py -v`
-Expected: both tests PASS (the directories exist and are empty, so there is nothing to offend yet). If `uv sync` fails on `pytest-homeassistant-custom-component`, pin it to the release matching HA 2025.9 and retry.
+Expected: both tests PASS (the directories exist and are empty, so there is nothing to offend yet). If `uv sync` fails on `pytest-homeassistant-custom-component`, pin it to the release matching the installed HA and retry. Also create `.python-version` containing `3.14`, so uv provisions the interpreter HA requires.
 
 - [ ] **Step 6: Create CI workflows**
 
@@ -305,7 +305,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.13"
+          python-version: "3.14"
       - run: uv sync
       - run: uv run ruff check .
       - run: uv run ruff format --check .
@@ -3468,7 +3468,7 @@ Add to `strings.json` at the top level:
 - [ ] **Step 11: Run the tests and verify they pass**
 
 Run: `uv run pytest tests/test_job_subentry_flow.py tests/test_job_factory.py -v`
-Expected: PASS. If `async_update_and_abort` is missing, check your installed HA version's `ConfigSubentryFlow` in `homeassistant/config_entries.py` and use the method it provides — do not downgrade the minimum HA version below 2025.9.
+Expected: PASS. If `async_update_and_abort` is missing, check your installed HA version's `ConfigSubentryFlow` in `homeassistant/config_entries.py` and use the method it provides — do not downgrade the minimum HA version below 2026.3.
 
 - [ ] **Step 12: Commit**
 
@@ -5825,7 +5825,7 @@ Run against the spec after finishing the plan, before handing it to an executor.
 
 ## Execution Handoff
 
-**Plan complete and saved to `.claude/plans/2026-09-15-skedda-scheduler-v0.1.md`. Two execution options:**
+**Plan complete and saved to `docs/plans/2026-09-15-skedda-scheduler-v0.1.md`. Two execution options:**
 
 **1. Subagent-Driven (recommended)** — a fresh subagent per task, review between tasks, fast iteration.
 
