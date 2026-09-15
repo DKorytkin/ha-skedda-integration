@@ -1,0 +1,57 @@
+# Skedda Scheduler
+
+A Home Assistant integration for recurring bookings in [Skedda](https://www.skedda.com/).
+
+Venues that use Skedda usually open reservations a fixed period ahead — a slot
+seven days away becomes bookable at midnight, and not a moment sooner. Holding a
+regular weekly slot therefore means being at a keyboard at an inconvenient hour,
+every week, for the length of a season.
+
+This integration turns that into configuration. You describe the slot once — court,
+weekday, time, how far ahead the venue opens bookings — and Home Assistant submits
+the reservation when the booking window opens, then reports the result as entities,
+events and notifications.
+
+> **Status:** in development. v0.1 has not been released yet, so the screens and
+> field names below describe the intended behaviour rather than shipped software.
+
+## Documentation
+
+| Page | Contents |
+|---|---|
+| [Installation](installation.md) | Installing through HACS, requirements, updating |
+| [Configuration](configuration.md) | Adding an account, creating a booking job, every field explained |
+| [Usage](usage.md) | Entities, services, events, automation examples |
+| [Architecture](architecture.md) | How the integration is put together and why |
+| [Troubleshooting](troubleshooting.md) | Diagnostics, repair issues, common failures |
+
+## Features
+
+- **Recurring bookings** — weekly or fortnightly, bounded by a season start and end date.
+- **Booking-window awareness** — you declare how far ahead and at what local time the
+  venue opens reservations; the integration derives the exact instant from that.
+- **Accurate submission** — the session is prepared in advance and the request is
+  timed against the venue server's own clock rather than the Home Assistant host's.
+- **Several accounts** — add as many Skedda accounts as you need and assign each
+  booking job to one of them.
+- **Visible results** — every attempt is recorded, exposed as entities, published on
+  the event bus, and optionally pushed to a notification service.
+
+## Compatibility
+
+- Home Assistant **2026.3.0** or newer.
+- A Skedda venue that you can sign in to with an email address and password.
+
+## A note on how this works
+
+Skedda does not publish a public API for creating reservations. This integration
+uses the same HTTP interface that the Skedda web application uses, which means the
+interface is undocumented and may change without notice. When that happens the
+integration raises a repair issue in Home Assistant rather than failing quietly.
+
+Review your venue's terms of use before automating reservations, and use the
+integration only with accounts you own.
+
+## Licence
+
+MIT. See [LICENSE](../LICENSE).
