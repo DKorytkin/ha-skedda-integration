@@ -8,6 +8,9 @@ DOMAIN: Final = "skedda_scheduler"
 
 CONF_VENUE: Final = "venue"
 CONF_ALIAS: Final = "alias"
+#: Read from /webs during setup rather than typed: every booking time is
+#: venue-local, and a guessed zone silently shifts every slot.
+CONF_VENUE_TIMEZONE: Final = "venue_timezone"
 
 SUBENTRY_TYPE_JOB: Final = "job"
 

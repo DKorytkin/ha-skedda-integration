@@ -1,0 +1,52 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add a Skedda account",
+        "description": "Sign in with the account you normally book with. The venue is the first part of its Skedda address: for https://myclub.skedda.com that is `myclub`.",
+        "data": {
+          "venue": "Venue",
+          "email": "Email",
+          "password": "Password",
+          "alias": "Name"
+        },
+        "data_description": {
+          "venue": "The subdomain only, without `.skedda.com`.",
+          "alias": "Shown in Home Assistant. Leave empty to use the venue name."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in again",
+        "description": "Skedda no longer accepts the stored password for {account}.",
+        "data": {
+          "password": "Password"
+        }
+      },
+      "reconfigure": {
+        "title": "Edit the Skedda account",
+        "description": "Change any of the account's details. The password is not shown and must be entered again.",
+        "data": {
+          "venue": "Venue",
+          "email": "Email",
+          "password": "Password",
+          "alias": "Name"
+        },
+        "data_description": {
+          "venue": "The subdomain only, without `.skedda.com`.",
+          "alias": "Shown in Home Assistant. Leave empty to use the venue name."
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Skedda rejected the email or password.",
+      "cannot_connect": "Could not reach the venue. Check the venue name and your connection.",
+      "unknown": "The venue answered in a way this integration did not expect. Check the logs."
+    },
+    "abort": {
+      "already_configured": "This account is already set up.",
+      "account_mismatch": "Those details belong to a different account. Add it as a new account instead of editing this one.",
+      "reauth_successful": "Signed in again.",
+      "reconfigure_successful": "The account was updated."
+    }
+  }
+}

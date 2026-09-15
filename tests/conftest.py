@@ -10,6 +10,7 @@ production, instead of as a mock library imagines.
 
 from __future__ import annotations
 
+from collections import defaultdict, deque
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -49,10 +50,18 @@ class FakeSkedda:
 
     def __init__(self) -> None:
         self.stubs: dict[tuple[str, str], Stub] = {}
+        self.queued: dict[tuple[str, str], deque[Stub]] = defaultdict(deque)
         self.requests: list[Recorded] = []
 
     def stub(self, method: str, path: str, **kwargs: Any) -> None:
         self.stubs[(method.upper(), path)] = Stub(**kwargs)
+
+    def stub_once(self, method: str, path: str, **kwargs: Any) -> None:
+        """Answer the next call to this path this way, then fall back.
+
+        For testing retries: the first response differs from the ones after it.
+        """
+        self.queued[(method.upper(), path)].append(Stub(**kwargs))
 
     def requests_for(self, method: str, path: str) -> list[Recorded]:
         return [r for r in self.requests if r.method == method.upper() and r.path == path]
@@ -73,7 +82,9 @@ class FakeSkedda:
                 json=body,
             )
         )
-        stub = self.stubs.get((request.method, request.path))
+        key = (request.method, request.path)
+        queue = self.queued.get(key)
+        stub = queue.popleft() if queue else self.stubs.get(key)
         if stub is None:
             return web.json_response({"unstubbed": request.path}, status=404)
         if stub.exception:
