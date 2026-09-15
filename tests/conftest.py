@@ -10,16 +10,20 @@ production, instead of as a mock library imagines.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import aiohttp
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestServer
+from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.skedda_scheduler.api import endpoints
+from custom_components.skedda_scheduler.const import CONF_ALIAS, CONF_VENUE, DOMAIN
 
 
 @dataclass
@@ -123,3 +127,33 @@ pytest_plugins = ["pytest_homeassistant_custom_component"]
 def auto_enable_custom_integrations(enable_custom_integrations: object) -> None:
     """Let Home Assistant load custom_components during tests."""
     return None
+
+
+ENTRY_DATA = {
+    CONF_VENUE: "myclub",
+    CONF_EMAIL: "user@example.com",
+    CONF_PASSWORD: "secret",
+    CONF_ALIAS: "Main account (Oleh)",
+}
+
+
+@pytest.fixture
+def mock_entry() -> MockConfigEntry:
+    return MockConfigEntry(
+        domain=DOMAIN,
+        data=ENTRY_DATA,
+        title="Main account (Oleh)",
+        unique_id="myclub:user@example.com",
+        entry_id="entry-1",
+    )
+
+
+@pytest.fixture
+def mock_provider() -> Iterator[AsyncMock]:
+    """Patch SkeddaProvider everywhere the integration constructs one."""
+    provider = AsyncMock()
+    provider.is_authenticated = True
+    provider.list_spaces.return_value = []
+    provider.list_bookings.return_value = []
+    with patch("custom_components.skedda_scheduler.SkeddaProvider", return_value=provider):
+        yield provider

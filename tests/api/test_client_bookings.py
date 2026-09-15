@@ -302,3 +302,13 @@ async def test_create_booking_fills_in_the_identity_itself(
     sent = skedda.requests_for("POST", endpoints.BOOKINGS.path)[0]
     assert sent.json["booking"]["venue"] == "100000"
     assert sent.json["booking"]["venueuser"] == "900001"
+
+
+async def test_identity_rejects_a_payload_without_a_web_block(
+    http: aiohttp.ClientSession, skedda: FakeSkedda
+) -> None:
+    """Losing the block entirely is a different failure from losing a key."""
+    client = await authenticated(http, skedda)
+    skedda.stub("GET", endpoints.SPACES.path, json={"assets": []})
+    with pytest.raises(ApiContractError, match="'web' block"):
+        await client.identity()
