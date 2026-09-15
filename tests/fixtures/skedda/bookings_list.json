@@ -1,0 +1,49 @@
+{
+  "bookings": [
+    {
+      "start": "2026-09-28T08:00:00",
+      "end": "2026-09-28T09:00:00",
+      "endOfLastOccurrence": "2026-09-28T09:00:00",
+      "title": null,
+      "price": 0,
+      "type": 1,
+      "paymentStatus": 0,
+      "recurrenceRule": null,
+      "spaces": ["2000001"],
+      "venueuser": "900001",
+      "venue": "100000",
+      "lockInMargin": 1,
+      "createdDate": "2026-09-15T11:05:01Z",
+      "attendees": null,
+      "syncToExternalCalendar": false,
+      "availabilityStatus": null,
+      "customFields": [],
+      "addOns": [],
+      "id": "300000001"
+    },
+    {
+      "start": "2026-09-28T10:00:00",
+      "end": "2026-09-28T11:00:00",
+      "endOfLastOccurrence": "2026-09-28T11:00:00",
+      "title": null,
+      "price": 0,
+      "type": 1,
+      "paymentStatus": 0,
+      "recurrenceRule": null,
+      "spaces": ["2000001"],
+      "venueuser": "900002",
+      "venue": "100000",
+      "lockInMargin": 1,
+      "createdDate": "2026-09-02T07:00:21Z",
+      "attendees": null,
+      "syncToExternalCalendar": false,
+      "availabilityStatus": null,
+      "customFields": [],
+      "addOns": [],
+      "id": "300000002"
+    }
+  ],
+  "venueusers": [],
+  "visits": [],
+  "bookingslist": {}
+}

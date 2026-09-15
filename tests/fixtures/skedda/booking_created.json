@@ -1,0 +1,22 @@
+{
+  "booking": {
+    "start": "2026-09-28T08:00:00",
+    "end": "2026-09-28T09:00:00",
+    "endOfLastOccurrence": "2026-09-28T09:00:00",
+    "title": null,
+    "price": 0,
+    "type": 1,
+    "paymentStatus": 0,
+    "recurrenceRule": null,
+    "spaces": ["2000001"],
+    "venueuser": "900001",
+    "venue": "100000",
+    "lockInMargin": 1,
+    "createdDate": "2026-09-15T11:05:01Z",
+    "attendees": [],
+    "addOns": [],
+    "customFields": [],
+    "arbitraryerrors": null,
+    "id": "300000001"
+  }
+}
