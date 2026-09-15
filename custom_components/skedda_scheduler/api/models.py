@@ -109,6 +109,76 @@ class SkeddaBooking:
 
 
 @dataclass(frozen=True, slots=True)
+class SkeddaVenue:
+    """The venue settings that drive scheduling, read from /webs.
+
+    `max_days_ahead` and `weekly_quota_minutes` are None when the venue sets no
+    such rule. None means "unlimited" - it must never be conflated with 0,
+    which would read as "nothing may be booked".
+    """
+
+    id: str
+    name: str
+    timezone: str
+    slot_minutes: int
+    max_days_ahead: int | None
+    weekly_quota_minutes: int | None
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> SkeddaVenue:
+        return cls(
+            id=str(payload.get("id", "")),
+            name=str(payload.get("name", "")),
+            timezone=str(_require(payload, "timeZoneId")),
+            slot_minutes=int(payload.get("timeGranularityMinutes") or 0),
+            max_days_ahead=_max_days_ahead(payload.get("bookingWindow")),
+            weekly_quota_minutes=_weekly_quota(payload.get("quotaRules")),
+        )
+
+
+# bookingWindow.rules[].predicate: 1 means "at most N days ahead" - confirmed
+# 2026-09-15, the server rejected a later slot quoting the same value.
+_PREDICATE_MAX_DAYS_AHEAD = 1
+# quotaRules.rules[].period: 2 means "per week"; aggregationMetric 1 means the
+# value counts minutes.
+_PERIOD_WEEK = 2
+_METRIC_MINUTES = 1
+
+
+def _rules(block: Any) -> list[dict[str, Any]]:
+    if not isinstance(block, dict):
+        return []
+    rules = block.get("rules")
+    return [r for r in rules if isinstance(r, dict)] if isinstance(rules, list) else []
+
+
+def _max_days_ahead(block: Any) -> int | None:
+    values = [
+        int(r["value"])
+        for r in _rules(block)
+        if r.get("predicate") == _PREDICATE_MAX_DAYS_AHEAD and r.get("value") is not None
+    ]
+    # Several rules can apply at once; the tightest one is what the server
+    # enforces, so anything looser would let us schedule an attempt that fails.
+    return min(values) if values else None
+
+
+def _weekly_quota(block: Any) -> int | None:
+    values = [
+        int(r["value"])
+        for r in _rules(block)
+        if r.get("period") == _PERIOD_WEEK
+        and r.get("aggregationMetric") == _METRIC_MINUTES
+        # A rule scoped to member tags may not apply to this account; without
+        # knowing our own tags we cannot evaluate it, so only untagged
+        # venue-wide rules are read here.
+        and not r.get("tagIds")
+        and r.get("value") is not None
+    ]
+    return min(values) if values else None
+
+
+@dataclass(frozen=True, slots=True)
 class SkeddaBookingRequest:
     """A booking we intend to create.
 

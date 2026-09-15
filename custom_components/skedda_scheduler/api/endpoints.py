@@ -89,7 +89,20 @@ def _local_iso(value: datetime) -> str:
     """
     if value.tzinfo is None:
         raise ValueError("booking times must be timezone-aware venue-local datetimes")
-    return value.replace(tzinfo=None).isoformat(timespec="seconds")
+    naive = value.replace(tzinfo=None)
+    # Skedda writes whole seconds for a start and milliseconds for an end-of-day
+    # bound. Preserving sub-second precision only when it exists reproduces both.
+    spec = "milliseconds" if naive.microsecond else "seconds"
+    return naive.isoformat(timespec=spec)
+
+
+def list_bookings_params(start: datetime, end: datetime) -> dict[str, str]:
+    """Build the /bookingslists query the way Skedda's own client does.
+
+    Naive venue-local, and the end of a day is stamped to the millisecond
+    (`2026-09-28T23:59:59.999`) rather than rounded up to the next midnight.
+    """
+    return {"start": _local_iso(start), "end": _local_iso(end)}
 
 
 def login_payload(email: str, password: str) -> dict[str, Any]:

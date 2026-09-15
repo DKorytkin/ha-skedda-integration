@@ -28,7 +28,14 @@ from .errors import (
     SkeddaAuthError,
     SkeddaConnectionError,
 )
-from .models import SkeddaCredentials, SkeddaSession
+from .models import (
+    SkeddaBooking,
+    SkeddaBookingRequest,
+    SkeddaCredentials,
+    SkeddaSession,
+    SkeddaSpace,
+    SkeddaVenue,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -118,6 +125,66 @@ class SkeddaClient:
                 or f"{endpoint.method} {endpoint.path} failed with status {status}"
             )
         return status, body, headers
+
+    async def list_spaces(self) -> list[SkeddaSpace]:
+        """Return the venue's bookable spaces. Skedda calls these "assets"."""
+        payload = await self._webs()
+        assets = payload.get("assets")
+        if not isinstance(assets, list):
+            raise ApiContractError(f"/webs carried no 'assets' list; keys {sorted(payload)}")
+        return [SkeddaSpace.from_payload(item) for item in assets]
+
+    async def venue_settings(self) -> SkeddaVenue:
+        """Return the venue rules the scheduler needs: timezone, window, quota."""
+        payload = await self._webs()
+        venues = payload.get("venue")
+        if not isinstance(venues, list) or not venues:
+            raise ApiContractError(f"/webs carried no 'venue' entry; keys {sorted(payload)}")
+        return SkeddaVenue.from_payload(venues[0])
+
+    async def create_booking(self, request: SkeddaBookingRequest) -> SkeddaBooking:
+        _, body, _ = await self.request(
+            endpoints.BOOKINGS, json_body=endpoints.booking_payload(request)
+        )
+        return self._unwrap_booking(body)
+
+    async def list_bookings(self, start: datetime, end: datetime) -> list[SkeddaBooking]:
+        """List bookings in a window. Times are venue-local and timezone-aware."""
+        _, body, _ = await self.request(
+            endpoints.BOOKINGS_LIST, params=endpoints.list_bookings_params(start, end)
+        )
+        bookings = body.get("bookings") if isinstance(body, dict) else None
+        if not isinstance(bookings, list):
+            raise ApiContractError(
+                "/bookingslists carried no 'bookings' list; "
+                f"keys {sorted(body) if isinstance(body, dict) else type(body)}"
+            )
+        return [SkeddaBooking.from_payload(item) for item in bookings]
+
+    async def cancel_booking(self, booking_id: str) -> None:
+        """Cancel a booking. Confirmed: DELETE answers 204 with no body."""
+        await self.request(
+            endpoints.Endpoint(endpoints.BOOKING_CANCEL.method, endpoints.booking_path(booking_id))
+        )
+
+    async def _webs(self) -> dict[str, Any]:
+        _, body, _ = await self.request(endpoints.SPACES)
+        if not isinstance(body, dict):
+            raise ApiContractError(f"/webs returned {type(body).__name__}, not an object")
+        return body
+
+    @staticmethod
+    def _unwrap_booking(body: Any) -> SkeddaBooking:
+        """Read a booking from a create/update response.
+
+        The response envelope was never captured - the successful POST predated
+        instrumentation - so both the enveloped and the bare shape are accepted.
+        Guessing one would fail at the worst moment: the instant a window opens.
+        """
+        if not isinstance(body, dict):
+            raise ApiContractError(f"booking response was {type(body).__name__}, not an object")
+        inner = body.get("booking")
+        return SkeddaBooking.from_payload(inner if isinstance(inner, dict) else body)
 
     def _classify(
         self, endpoint: endpoints.Endpoint, status: int, body: Any
