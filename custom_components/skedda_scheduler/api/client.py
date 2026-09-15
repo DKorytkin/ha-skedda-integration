@@ -90,7 +90,17 @@ class SkeddaClient:
             raise SkeddaAuthError("Skedda rejected the credentials")
         failure = endpoints.classify_error(status, body)
         if failure is not None:
-            raise failure(endpoints.error_detail(body) or f"login failed with status {status}")
+            self._session = None
+            detail = endpoints.error_detail(body) or f"login failed with status {status}"
+            if failure is ApiContractError:
+                # Captured live 2026-09-15: a wrong password comes back as 422
+                # carrying the same error envelope as a booking-rule violation.
+                # A sign-in request cannot violate a booking rule, so the only
+                # thing an unrecognised rejection here can mean is that the
+                # credentials were not accepted - and telling the user their
+                # API changed would send them hunting for someone else's bug.
+                raise SkeddaAuthError(detail)
+            raise failure(detail)
         # A different account may be signing in; stale ids would misbook.
         self._identity = None
         self._session = SkeddaSession(

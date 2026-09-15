@@ -299,3 +299,35 @@ async def test_a_connection_drop_mid_session_is_a_connection_error(
     monkeypatch.setattr(endpoints, "base_url", lambda venue: "http://127.0.0.1:1")
     with pytest.raises(SkeddaConnectionError):
         await client.request(endpoints.SPACES)
+
+
+async def test_a_rejected_login_is_reported_as_bad_credentials_not_a_contract_error(
+    http: aiohttp.ClientSession, skedda: FakeSkedda
+) -> None:
+    """Captured live 2026-09-15: Skedda answers a wrong password with 422.
+
+    It reuses the same error envelope as a booking-rule violation, so without
+    this the user is told the API changed and goes hunting for a bug, when the
+    real answer is that they mistyped their password.
+    """
+    client = SkeddaClient(http, CREDS)
+    skedda.stub("GET", endpoints.LOGIN_PAGE.path, text=LOGIN_PAGE_HTML, headers=DATE)
+    skedda.stub(
+        "POST",
+        endpoints.LOGIN.path,
+        status=422,
+        json={
+            "errors": [
+                {
+                    "source": {"pointer": "/data/attributes/arbitraryerrors"},
+                    "detail": "Sorry, your login credentials are not correct. Please "
+                    "double-check your email and password. You can use the login-reset "
+                    "feature if you have forgotten your password.",
+                }
+            ]
+        },
+    )
+
+    with pytest.raises(SkeddaAuthError, match="not correct"):
+        await client.authenticate()
+    assert not client.is_authenticated
