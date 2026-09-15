@@ -1,0 +1,103 @@
+{
+  "assets": [
+    {
+      "name": "Court 1",
+      "nonAdminVisible": true,
+      "index": 0,
+      "venue": "100000",
+      "parents": [],
+      "children": [],
+      "info": {
+        "desc": null,
+        "images": []
+      },
+      "id": "2000001"
+    },
+    {
+      "name": "Court 2",
+      "nonAdminVisible": true,
+      "index": 1,
+      "venue": "100000",
+      "parents": [],
+      "children": [],
+      "info": {
+        "desc": null,
+        "images": []
+      },
+      "id": "2000002"
+    }
+  ],
+  "venue": [
+    {
+      "name": "Test Venue",
+      "subdomain": "myclub",
+      "timeZoneId": "Europe/Kyiv",
+      "timeGranularityMinutes": 60,
+      "firstDayOfWeek": 1,
+      "bookingTitleRequired": false,
+      "userContactNumberRequired": true,
+      "lockInConfig": {
+        "lockInHours": 1,
+        "lockInType": 3
+      },
+      "bookingWindow": {
+        "rules": [
+          {
+            "tagIds": null,
+            "spaceIds": null,
+            "value": 14,
+            "predicate": 1,
+            "mode": 1,
+            "daysBitmask": 127,
+            "endTotalMinutes": 1440
+          },
+          {
+            "tagIds": null,
+            "spaceIds": null,
+            "value": 3,
+            "predicate": 2,
+            "mode": 1,
+            "daysBitmask": 127,
+            "endTotalMinutes": 1440
+          }
+        ]
+      },
+      "quotaRules": {
+        "rules": [
+          {
+            "tagIds": null,
+            "spaceIds": null,
+            "value": 60,
+            "aggregationMetric": 1,
+            "startTotalMinutes": 0,
+            "endTotalMinutes": 1440,
+            "daysBitmask": 127,
+            "period": 2,
+            "mode": 1
+          }
+        ]
+      }
+    }
+  ],
+  "useraccount": [
+    {
+      "id": "900001",
+      "email": "user@example.com"
+    }
+  ],
+  "venueusers": [
+    {
+      "id": "900001",
+      "venue": "100000"
+    }
+  ],
+  "venueusertags": [],
+  "venueapikeys": [],
+  "webhooks": [],
+  "web": {
+    "zoneRootHost": "skedda.com",
+    "venue": "100000",
+    "venueuser": "900001",
+    "userId": 3376295
+  }
+}

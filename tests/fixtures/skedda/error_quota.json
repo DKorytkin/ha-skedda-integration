@@ -1,0 +1,10 @@
+{
+  "errors": [
+    {
+      "source": {
+        "pointer": "/data/attributes/arbitraryerrors"
+      },
+      "detail": "<span data-isolate>This booking cannot be confirmed because it would mean that your quota is exceeded for the week <var data-var=\"period-start\">28.09.26</var> to <var data-var=\"period-end\">04.10.26</var>. Specifically, you are allowed an individual maximum of <var data-var=\"time-value\">1h</var> across all spaces. You can check your current usage on the List mode under 'My Bookings'.</span>"
+    }
+  ]
+}

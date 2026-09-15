@@ -1,0 +1,171 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add a Skedda account",
+        "description": "Sign in with the account you normally book with. The venue is the first part of your Skedda address: for `myclub.skedda.com` that is `myclub`.",
+        "data": {
+          "venue": "Venue",
+          "email": "Email",
+          "password": "Password",
+          "alias": "Name"
+        },
+        "data_description": {
+          "venue": "The subdomain only, without `.skedda.com`.",
+          "alias": "Shown in Home Assistant. Leave empty to use the venue name."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in again",
+        "description": "Skedda no longer accepts the stored password for {account}.",
+        "data": {
+          "password": "Password"
+        }
+      },
+      "reconfigure": {
+        "title": "Edit the Skedda account",
+        "description": "Change any of the account's details. The password is not shown and must be entered again.",
+        "data": {
+          "venue": "Venue",
+          "email": "Email",
+          "password": "Password",
+          "alias": "Name"
+        },
+        "data_description": {
+          "venue": "The subdomain only, without `.skedda.com`.",
+          "alias": "Shown in Home Assistant. Leave empty to use the venue name."
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Skedda rejected the email or password.",
+      "cannot_connect": "Could not reach the venue. Check the venue name and your connection.",
+      "unknown": "The venue answered in a way this integration did not expect. Check the logs."
+    },
+    "abort": {
+      "already_configured": "This account is already set up.",
+      "account_mismatch": "Those details belong to a different account. Add it as a new account instead of editing this one.",
+      "reauth_successful": "Signed in again.",
+      "reconfigure_successful": "The account was updated."
+    }
+  },
+  "config_subentries": {
+    "job": {
+      "title": "Booking job",
+      "initiate_flow": {
+        "user": "Add a booking job",
+        "reconfigure": "Edit the booking job"
+      },
+      "entry_type": "Booking job",
+      "step": {
+        "user": {
+          "title": "Add a booking job",
+          "description": "The job books the same slot every week. This venue opens bookings {horizon} days ahead and allows {quota} minutes per week.",
+          "data": {
+            "name": "Job name",
+            "space_id": "Court",
+            "weekday": "Day of week",
+            "start_time": "Start time",
+            "duration_minutes": "Duration",
+            "window_days": "Booking opens this many days before",
+            "frequency": "Repeat",
+            "season_start": "Season starts",
+            "season_end": "Season ends (optional)",
+            "title": "Booking title shown in Skedda",
+            "strategy": "Strategy",
+            "notify_targets": "Notify these services with the result"
+          },
+          "data_description": {
+            "space_id": "Read from the venue. Free text here means the venue could not be reached.",
+            "duration_minutes": "The venue allows {quota} minutes per week.",
+            "window_days": "This venue opens bookings {horizon} days ahead. Match it exactly: earlier is refused, later is too late.",
+            "strategy": "Precise fires the request the instant the window opens. Immediate fires once and retries."
+          }
+        },
+        "reconfigure": {
+          "title": "Edit the booking job",
+          "description": "The job books the same slot every week. This venue opens bookings {horizon} days ahead and allows {quota} minutes per week.",
+          "data": {
+            "name": "Job name",
+            "space_id": "Court",
+            "weekday": "Day of week",
+            "start_time": "Start time",
+            "duration_minutes": "Duration",
+            "window_days": "Booking opens this many days before",
+            "frequency": "Repeat",
+            "season_start": "Season starts",
+            "season_end": "Season ends (optional)",
+            "title": "Booking title shown in Skedda",
+            "strategy": "Strategy",
+            "notify_targets": "Notify these services with the result"
+          },
+          "data_description": {
+            "space_id": "Read from the venue. Free text here means the venue could not be reached.",
+            "duration_minutes": "The venue allows {quota} minutes per week.",
+            "window_days": "This venue opens bookings {horizon} days ahead. Match it exactly: earlier is refused, later is too late.",
+            "strategy": "Precise fires the request the instant the window opens. Immediate fires once and retries."
+          }
+        }
+      },
+      "error": {
+        "over_quota": "Longer than the venue's weekly allowance, so this job could never be booked.",
+        "beyond_horizon": "Earlier than the venue opens its bookings, so every attempt would be refused."
+      },
+      "abort": {
+        "reconfigure_successful": "The booking job was updated."
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "next_run": {
+        "name": "Next run"
+      },
+      "last_outcome": {
+        "name": "Last outcome"
+      }
+    },
+    "binary_sensor": {
+      "authentication": {
+        "name": "Authentication"
+      }
+    },
+    "switch": {
+      "job_enabled": {
+        "name": "Job enabled"
+      }
+    },
+    "button": {
+      "run_now": {
+        "name": "Run now"
+      }
+    }
+  },
+  "services": {
+    "trigger_job_now": {
+      "name": "Trigger job now",
+      "description": "Runs a booking job immediately instead of waiting for its window to open.",
+      "fields": {
+        "job_id": {
+          "name": "Job",
+          "description": "The subentry id of the booking job. It is shown in the account's diagnostics."
+        }
+      }
+    },
+    "refresh_spaces": {
+      "name": "Refresh spaces",
+      "description": "Re-reads courts and upcoming bookings from Skedda for every configured account."
+    }
+  },
+  "exceptions": {
+    "unknown_job": {
+      "message": "No booking job with the id {job_id} is set up."
+    }
+  },
+  "issues": {
+    "api_contract_changed": {
+      "title": "Skedda changed its API",
+      "description": "Skedda returned something this integration does not recognise, so the booking was abandoned. Please open an issue with the diagnostics attached.\n\nDetail: {detail}"
+    }
+  }
+}

@@ -7,6 +7,8 @@ __pycache__/
 *.so
 
 # Distribution / packaging
+.claude/
+.idea/
 .Python
 build/
 develop-eggs/
@@ -216,3 +218,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Captured Skedda API traffic - contains live credentials, never commit
+*.har

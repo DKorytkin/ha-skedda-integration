@@ -1,0 +1,9 @@
+trigger_job_now:
+  fields:
+    job_id:
+      required: true
+      example: "01JABCDEF0123456789"
+      selector:
+        text:
+
+refresh_spaces:

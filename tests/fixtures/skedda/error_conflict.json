@@ -1,0 +1,10 @@
+{
+  "errors": [
+    {
+      "source": {
+        "pointer": "/data/attributes/arbitraryerrors"
+      },
+      "detail": "We couldn't put in your booking because it conflicts with one already scheduled on вівторок, 29 вересня 2026 р., 10:00 (Court 1). Conflicting bookings are not allowed, so resolve the conflict and give it another go!"
+    }
+  ]
+}

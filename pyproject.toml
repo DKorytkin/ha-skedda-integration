@@ -1,0 +1,47 @@
+[project]
+name = "ha-skedda-integration"
+version = "0.1.0"
+description = "Skedda Scheduler integration for Home Assistant"
+requires-python = ">=3.14.2"
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "homeassistant>=2026.3.0",
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "pytest-cov>=6.0",
+  "pytest-homeassistant-custom-component>=0.13.200",
+  "aioresponses>=0.7.7",
+  "freezegun>=1.5",
+  "syrupy>=4.8",
+  "ruff>=0.8",
+  "mypy>=1.13",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF", "SIM", "TID"]
+
+[tool.ruff.lint.per-file-ignores]
+# Home Assistant's own integrations import from their parent package this way
+# (see homeassistant/components/axis/hub/); an absolute path would also be
+# unresolvable to mypy, since custom_components is a namespace package.
+"custom_components/skedda_scheduler/*/*.py" = ["TID252"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+strict = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-q --cov=custom_components/skedda_scheduler --cov-report=term-missing"

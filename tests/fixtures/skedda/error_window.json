@@ -1,0 +1,10 @@
+{
+  "errors": [
+    {
+      "source": {
+        "pointer": "/data/attributes/arbitraryerrors"
+      },
+      "detail": "<span data-isolate>You can only book at <var data-var=\"venue\">Test Venue</var> up to <var data-var=\"duration-days\">14</var> day(s) ahead.</span>"
+    }
+  ]
+}
