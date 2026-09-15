@@ -36,6 +36,7 @@ from .core.provider import BookingProvider, BookingRequest
 from .core.result import AttemptStatus, BookingAttempt, BookingOutcome
 from .core.strategy import build_strategy, should_retry
 from .job_factory import build_job, venue_timezone_for
+from .repairs import async_clear_contract_issue, async_raise_contract_issue
 from .sinks import ResultSink, async_dispatch, build_default_sinks
 from .store import AttemptStore
 
@@ -212,6 +213,14 @@ class JobRunner:
                         detail=detail,
                     )
                 )
+
+                if status is AttemptStatus.CONTRACT_ERROR:
+                    # Nobody documented this API. The day it changes, the user
+                    # needs a sentence they can act on, not a job that quietly
+                    # stops booking.
+                    async_raise_contract_issue(self.hass, self.entry.entry_id, detail or "")
+                elif status is AttemptStatus.SUCCESS:
+                    async_clear_contract_issue(self.hass, self.entry.entry_id)
 
                 if status is AttemptStatus.SUCCESS:
                     break

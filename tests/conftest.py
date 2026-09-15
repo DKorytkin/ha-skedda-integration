@@ -203,5 +203,9 @@ def mock_provider() -> Iterator[AsyncMock]:
     # estimate; an AsyncMock here would hand back coroutines instead of times.
     provider.client = MagicMock()
     provider.client.clock.local_instant_for.side_effect = lambda instant: instant
+    # Real numbers, because diagnostics serialises these: a bare mock attribute
+    # makes the JSON encoder walk it and spawn child mocks until it hangs.
+    provider.client.clock.offset_seconds = 0.184
+    provider.client.clock.samples = 6
     with patch("custom_components.skedda_scheduler.SkeddaProvider", return_value=provider):
         yield provider

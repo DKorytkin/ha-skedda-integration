@@ -161,5 +161,11 @@
     "unknown_job": {
       "message": "No booking job with the id {job_id} is set up."
     }
+  },
+  "issues": {
+    "api_contract_changed": {
+      "title": "Skedda changed its API",
+      "description": "Skedda returned something this integration does not recognise, so the booking was abandoned. Please open an issue with the diagnostics attached.\n\nDetail: {detail}"
+    }
   }
 }
