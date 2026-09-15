@@ -13,6 +13,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api.client import SkeddaClient
 from .api.models import SkeddaCredentials
 from .const import CONF_VENUE
+from .coordinator import SkeddaCoordinator
 from .skedda_provider import SkeddaProvider
 
 PLATFORMS: list[Platform] = []
@@ -23,6 +24,7 @@ class SkeddaRuntimeData:
     """Everything an entry's platforms and scheduler need at runtime."""
 
     provider: SkeddaProvider
+    coordinator: SkeddaCoordinator
     #: One booking in flight per account. Two jobs racing each other would be
     #: bad anywhere, but at a venue with a weekly quota one job can burn the
     #: allowance the other needed.
@@ -47,8 +49,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bo
     # Home Assistant's shared session: it is closed on shutdown for us, and
     # reuses connections, which matters when a burst fires at a window opening.
     client = SkeddaClient(async_get_clientsession(hass), credentials)
+    provider = SkeddaProvider(client)
+    coordinator = SkeddaCoordinator(hass, entry, provider)
+    # The first refresh is what proves the credentials: it turns a rejection
+    # into a reauth flow and a venue outage into a retry, neither of which a
+    # bare setup failure would do.
+    await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = SkeddaRuntimeData(
-        provider=SkeddaProvider(client),
+        provider=provider,
+        coordinator=coordinator,
         semaphore=asyncio.Semaphore(1),
     )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

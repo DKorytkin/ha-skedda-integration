@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 import voluptuous as vol
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import selector
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.skedda_scheduler.api.errors import SkeddaConnectionError
@@ -155,34 +156,21 @@ async def test_a_window_beyond_the_venue_s_horizon_is_refused_up_front(
     assert result["errors"] == {CONF_WINDOW_DAYS: "beyond_horizon"}
 
 
-async def test_an_unreachable_venue_still_lets_a_job_be_added(
+async def test_a_venue_that_was_down_at_startup_still_lets_a_job_be_added(
     hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
 ) -> None:
-    """Skedda being down for a minute must not block configuring anything."""
-    await setup_entry(hass, mock_entry)
+    """Skedda being unreachable must not block configuring anything."""
     mock_provider.list_spaces.side_effect = SkeddaConnectionError("down")
-    mock_provider.venue_settings.side_effect = SkeddaConnectionError("down")
+    mock_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(mock_entry.entry_id)
+    await hass.async_block_till_done()
 
     result = await start_job_flow(hass, mock_entry)
-    # A free-text id rather than a dropdown: no list to choose from.
-    assert not hasattr(field(result["data_schema"], CONF_SPACE_ID), "config") or (
-        "options" not in field(result["data_schema"], CONF_SPACE_ID).config
-    )
+    # A free-text id rather than a dropdown: there is no list to choose from.
+    assert isinstance(field(result["data_schema"], CONF_SPACE_ID), selector.TextSelector)
 
     result = await hass.config_entries.subentries.async_configure(result["flow_id"], JOB_INPUT)
     assert result["type"] is FlowResultType.CREATE_ENTRY
-
-
-async def test_the_form_signs_in_when_the_session_has_not_started_yet(
-    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
-) -> None:
-    """Setup deliberately does not authenticate, so the first form must."""
-    await setup_entry(hass, mock_entry)
-    mock_provider.is_authenticated = False
-
-    await start_job_flow(hass, mock_entry)
-
-    mock_provider.authenticate.assert_awaited_once()
 
 
 async def test_an_existing_job_can_be_edited_in_place(

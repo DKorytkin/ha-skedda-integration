@@ -5,10 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigEntry, ConfigSubentryFlow, SubentryFlowResult
+from homeassistant.config_entries import ConfigSubentryFlow, SubentryFlowResult
 from homeassistant.helpers import selector
 
-from ..api.errors import SkeddaError
 from ..const import (
     CONF_DURATION,
     CONF_FREQUENCY,
@@ -198,24 +197,18 @@ class JobSubentryFlowHandler(ConfigSubentryFlow):
         )
 
     async def _venue_context(self) -> tuple[list[Space], VenueRules | None]:
-        """Ask the venue what it offers and what it allows.
+        """What the venue offers and what it allows, from the last poll.
 
-        Failures are swallowed on purpose: this only shapes the form, and being
-        unable to reach Skedda for a moment is no reason to block configuration.
+        Read rather than fetched: the coordinator already holds this, and a
+        form that made its own calls would sign in again and ask twice every
+        time somebody opened it. An entry that never loaded has nothing to
+        offer, which the form handles by falling back to free text.
         """
-        entry: ConfigEntry = self._get_entry()
         try:
-            provider = entry.runtime_data.provider
+            data = self._get_entry().runtime_data.coordinator.data
         except AttributeError:
             return [], None
-        try:
-            if not provider.is_authenticated:
-                # Setting the entry up deliberately does not sign in, so for a
-                # freshly started Home Assistant this form is the first to need it.
-                await provider.authenticate()
-            return await provider.list_spaces(), await provider.venue_settings()
-        except SkeddaError:
-            return [], None
+        return data.spaces, data.rules
 
 
 def _describe(value: int | None) -> str:
