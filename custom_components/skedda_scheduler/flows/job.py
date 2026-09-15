@@ -41,10 +41,11 @@ _FALLBACK_SLOT_MINUTES = 15
 _MAX_DURATION_MINUTES = 480
 _MAX_WINDOW_DAYS = 60
 
+#: Fortnightly exists in the domain model and is tested there, but nobody has
+#: asked for it and every extra option is one more thing to read past.
 REPEAT_OPTIONS = [
     selector.SelectOptionDict(value=Frequency.ONCE, label="Once"),
     selector.SelectOptionDict(value=Frequency.WEEKLY, label="Every week"),
-    selector.SelectOptionDict(value=Frequency.BIWEEKLY, label="Every other week"),
 ]
 
 STRATEGY_OPTIONS = [

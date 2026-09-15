@@ -68,14 +68,14 @@
             "start_time": "Start time",
             "duration_minutes": "Duration",
             "frequency": "Repeat",
-            "advanced": "More options"
+            "advanced": "More options on the next screen"
           },
           "data_description": {
             "space_id": "Read from the venue. Free text here means the venue could not be reached.",
             "start_date": "The date to book. This venue accepts bookings up to {horizon} days ahead.",
             "duration_minutes": "The venue allows {quota} minutes per week.",
             "frequency": "Book this once, or keep booking the same weekday.",
-            "advanced": "Season dates, the booking window, the strategy and notifications."
+            "advanced": "Season dates, the booking window, the strategy and notifications - shown after you continue."
           }
         },
         "advanced": {

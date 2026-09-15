@@ -352,3 +352,14 @@ async def test_a_job_can_be_added_before_the_account_has_ever_loaded(
 
     result = await hass.config_entries.subentries.async_configure(result["flow_id"], JOB_INPUT)
     assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_the_repeat_choice_is_once_or_weekly(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Every option is something to read past; fortnightly nobody asked for."""
+    await setup_entry(hass, mock_entry)
+    result = await start_job_flow(hass, mock_entry)
+
+    options = field(result["data_schema"], CONF_FREQUENCY).config["options"]
+    assert [option["value"] for option in options] == ["once", "weekly"]
