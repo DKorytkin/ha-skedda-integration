@@ -36,6 +36,21 @@ events and notifications.
 - **Visible results** — every attempt is recorded, exposed as entities, published on
   the event bus, and optionally pushed to a notification service.
 
+## What is not here yet
+
+Deliberate omissions, in the order they are likely to be missed:
+
+- **A sidebar panel.** Booking jobs live under Settings, which is where you
+  configure them but not where you would glance at them. A panel of its own
+  needs a frontend module shipped alongside the integration; until then, a
+  dashboard with the job entities does the same job in two minutes. Worth
+  building once somebody has enough jobs to want a page for them.
+- **A calendar platform.** Upcoming bookings as a calendar entity, and a sink
+  that writes each successful booking into a calendar of your choosing.
+- **Fallback courts.** The model already carries a list of spaces per job and
+  treats "slot taken" as its own outcome; what is missing is trying the next
+  court when the first is gone.
+
 ## Compatibility
 
 - Home Assistant **2026.3.0** or newer.

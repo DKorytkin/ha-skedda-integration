@@ -18,6 +18,7 @@ renamed or hidden in one place.
 |---|---|---|
 | `Next run` | sensor (timestamp) | When the integration will next wake up for this job. Unknown once the season has ended. |
 | `Last outcome` | sensor | `success`, or the reason the last run failed: `slot_taken`, `quota_exceeded`, `window_closed`, `too_early`, `auth_failed`, `rate_limited`, `contract_error`, `connection_error`, or `already_booked` when the slot was already held and nothing was sent. |
+| `Status` | sensor | `armed` while a booking attempt is scheduled, `disabled` when switched off, `out_of_season` once the season has ended. |
 | `Job enabled` | switch | Pauses or resumes the job without deleting it. |
 | `Run now` | button | Runs the job immediately instead of waiting for its window. |
 
@@ -29,6 +30,23 @@ renamed or hidden in one place.
 | Entity | Type | Meaning |
 |---|---|---|
 | `Authentication` | binary sensor (problem) | `on` means the account cannot currently be used — wrong password, or the venue is unreachable. |
+
+## How often it talks to the venue
+
+The integration is quiet by design. Each job arms a single timer for the moment
+its booking window opens and sleeps until then - there is no polling in between.
+
+The account itself is polled to keep courts, rules and bookings fresh, and that
+poll follows what is due:
+
+| Situation | Poll |
+|---|---|
+| Nothing due - out of season, or every job switched off | every 12 hours |
+| Next attempt more than a day away | hourly |
+| Next attempt within the hour | every 15 minutes |
+
+The twelve-hourly floor is deliberate: a password that has stopped working is
+better discovered in February than on the morning the season opens.
 
 ## Services
 
