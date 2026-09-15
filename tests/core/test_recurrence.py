@@ -40,9 +40,7 @@ def test_weekly_occurrences_are_seven_days_apart_starting_at_the_season() -> Non
 
 def test_first_occurrence_rolls_forward_when_the_season_starts_off_weekday() -> None:
     # 2026-09-02 is a Wednesday; the first Tuesday on or after it is the 8th.
-    rule = RecurrenceRule(
-        frequency=Frequency.WEEKLY, weekday=1, season_start=date(2026, 9, 2)
-    )
+    rule = RecurrenceRule(frequency=Frequency.WEEKLY, weekday=1, season_start=date(2026, 9, 2))
     assert rule.occurrences(after=date(2026, 9, 2), limit=1) == [date(2026, 9, 8)]
 
 
@@ -67,10 +65,8 @@ def test_biweekly_phase_survives_being_asked_mid_season() -> None:
 
 
 def test_an_occurrence_falling_exactly_on_the_cursor_is_included() -> None:
-    """"After" means on or after; excluding it would skip today's booking."""
-    assert biweekly().occurrences(after=date(2026, 9, 15), limit=1) == [
-        date(2026, 9, 15)
-    ]
+    """ "After" means on or after; excluding it would skip today's booking."""
+    assert biweekly().occurrences(after=date(2026, 9, 15), limit=1) == [date(2026, 9, 15)]
 
 
 def test_season_end_truncates_the_series_and_is_inclusive() -> None:
@@ -114,18 +110,14 @@ def test_every_occurrence_falls_on_the_configured_weekday() -> None:
     """The one property that must hold for every frequency and offset."""
     for frequency in Frequency:
         for weekday in range(7):
-            rule = RecurrenceRule(
-                frequency=frequency, weekday=weekday, season_start=SEASON_START
-            )
+            rule = RecurrenceRule(frequency=frequency, weekday=weekday, season_start=SEASON_START)
             dates = rule.occurrences(after=date(2026, 10, 7), limit=5)
             assert {d.weekday() for d in dates} == {weekday}
 
 
 def test_occurrences_step_by_the_frequency_across_a_year_boundary() -> None:
     """Crossing into a new year is where naive month arithmetic breaks."""
-    rule = RecurrenceRule(
-        frequency=Frequency.WEEKLY, weekday=1, season_start=date(2026, 12, 22)
-    )
+    rule = RecurrenceRule(frequency=Frequency.WEEKLY, weekday=1, season_start=date(2026, 12, 22))
     assert rule.occurrences(after=date(2026, 12, 22), limit=3) == [
         date(2026, 12, 22),
         date(2026, 12, 29),
@@ -136,9 +128,7 @@ def test_occurrences_step_by_the_frequency_across_a_year_boundary() -> None:
 @pytest.mark.parametrize("weekday", [-1, 7])
 def test_weekday_outside_zero_to_six_is_rejected(weekday: int) -> None:
     with pytest.raises(ValueError, match="weekday"):
-        RecurrenceRule(
-            frequency=Frequency.WEEKLY, weekday=weekday, season_start=SEASON_START
-        )
+        RecurrenceRule(frequency=Frequency.WEEKLY, weekday=weekday, season_start=SEASON_START)
 
 
 def test_season_end_before_season_start_is_rejected() -> None:

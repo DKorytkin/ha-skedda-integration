@@ -19,8 +19,7 @@ SLOT_END = datetime(2026, 9, 28, 9, 0, tzinfo=UTC)
 
 def make_outcome(succeeded: bool, *statuses: AttemptStatus) -> BookingOutcome:
     attempts = tuple(
-        BookingAttempt(i + 1, SLOT_START, status, 12.5)
-        for i, status in enumerate(statuses)
+        BookingAttempt(i + 1, SLOT_START, status, 12.5) for i, status in enumerate(statuses)
     )
     return BookingOutcome(
         job_id="job-1",
@@ -56,9 +55,7 @@ def test_failure_reason_is_unknown_when_no_attempt_was_made() -> None:
         (AttemptStatus.WINDOW_CLOSED, "window_closed"),
     ],
 )
-def test_venue_rule_failures_are_their_own_reasons(
-    status: AttemptStatus, expected: str
-) -> None:
+def test_venue_rule_failures_are_their_own_reasons(status: AttemptStatus, expected: str) -> None:
     """Reporting these as contract_error would blame Skedda for a venue rule.
 
     Both are settings the venue owner chose, and the user's fix differs for

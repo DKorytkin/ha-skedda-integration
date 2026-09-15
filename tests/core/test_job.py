@@ -70,9 +70,7 @@ def test_next_slot_keeps_an_occurrence_that_has_not_started_yet_today() -> None:
 def test_next_window_open_tracks_the_slots_own_time_of_day() -> None:
     """Rolling horizon: 18:00 Kyiv minus 14 days is 18:00 Kyiv, i.e. 15:00 UTC."""
     now = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
-    assert make_job().next_window_open(now) == datetime(
-        2026, 8, 25, 15, 0, tzinfo=UTC
-    )
+    assert make_job().next_window_open(now) == datetime(2026, 8, 25, 15, 0, tzinfo=UTC)
 
 
 def test_next_window_open_resolves_dst_on_the_opening_date() -> None:

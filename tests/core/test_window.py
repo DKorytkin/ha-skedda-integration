@@ -34,9 +34,7 @@ def test_an_early_slot_opens_earlier_in_the_day_than_a_late_one() -> None:
 
 def test_a_shorter_window_opens_later() -> None:
     slot = datetime(2026, 9, 29, 21, 0, tzinfo=KYIV)
-    assert BookingWindow(window_days=7).opens_at(slot) == datetime(
-        2026, 9, 22, 18, 0, tzinfo=UTC
-    )
+    assert BookingWindow(window_days=7).opens_at(slot) == datetime(2026, 9, 22, 18, 0, tzinfo=UTC)
 
 
 def test_the_opening_instant_uses_the_offset_in_force_on_the_opening_date() -> None:
