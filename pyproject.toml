@@ -30,7 +30,7 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF", "SIM", "TID"]
 # Home Assistant's own integrations import from their parent package this way
 # (see homeassistant/components/axis/hub/); an absolute path would also be
 # unresolvable to mypy, since custom_components is a namespace package.
-"custom_components/skedda_scheduler/flows/*.py" = ["TID252"]
+"custom_components/skedda_scheduler/*/*.py" = ["TID252"]
 
 [tool.mypy]
 python_version = "3.14"
