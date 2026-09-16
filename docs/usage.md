@@ -69,11 +69,21 @@ poll follows what is due:
 | Situation | Poll |
 |---|---|
 | Nothing due - out of season, or every job switched off | every 12 hours |
-| Next attempt more than a day away | hourly |
+| Next attempt more than six hours away | every 12 hours |
+| Next attempt within six hours | hourly |
 | Next attempt within the hour | every 15 minutes |
 
 The twelve-hourly floor is deliberate: a password that has stopped working is
 better discovered in February than on the morning the season opens.
+
+For one weekly job that is roughly **fifty requests a week**, most of them in
+the hours around the booking window. Each poll is two requests, not three: the
+venue's rules and its courts arrive in the same payload, and one fetch stands
+in for the other.
+
+A booking run adds the sign-in, a warm-up and up to five attempts, and only a
+run that actually booked something asks for a refresh afterwards - the venue's
+diary does not change unless we change it.
 
 ## Services
 

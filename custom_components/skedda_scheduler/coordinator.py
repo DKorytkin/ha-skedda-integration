@@ -40,8 +40,11 @@ DISTANT_INTERVAL = timedelta(hours=1)
 IDLE_INTERVAL = timedelta(hours=12)
 #: How close an arming has to be before the frequent poll is worth it.
 IMMINENT = timedelta(hours=1)
-#: Beyond this, hourly is plenty.
-DISTANT = timedelta(days=1)
+#: Beyond this, twice a day is plenty. The scheduler does not need the poll to
+#: fire - it has its own alarm - so this only keeps the panel and the calendars
+#: current. A day of hourly polling ahead of every booking was the largest
+#: share of everything this integration asked the venue, for no benefit.
+DISTANT = timedelta(hours=6)
 #: Comfortably past any venue's booking horizon (14 days at the venue this was
 #: built against), so a job's next slot is always inside the polled range.
 LOOKAHEAD = timedelta(days=30)
