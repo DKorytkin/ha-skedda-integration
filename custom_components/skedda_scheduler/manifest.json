@@ -1,8 +1,15 @@
 {
   "domain": "skedda_scheduler",
   "name": "Skedda Scheduler",
-  "codeowners": ["@DKorytkin"],
+  "codeowners": [
+    "@DKorytkin"
+  ],
   "config_flow": true,
+  "dependencies": [
+    "http",
+    "panel_custom",
+    "websocket_api"
+  ],
   "documentation": "https://github.com/DKorytkin/ha-skedda-integration",
   "integration_type": "service",
   "iot_class": "cloud_polling",

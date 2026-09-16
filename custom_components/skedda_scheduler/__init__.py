@@ -15,6 +15,7 @@ from .api.client import SkeddaClient
 from .api.models import SkeddaCredentials
 from .const import CONF_VENUE
 from .coordinator import SkeddaCoordinator
+from .panel import async_register_panel
 from .scheduler import JobScheduler
 from .services import async_setup_services
 from .skedda_provider import SkeddaProvider
@@ -90,6 +91,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bo
         store=store,
         semaphore=asyncio.Semaphore(1),
     )
+    await async_register_panel(hass)
+
     # Before the platforms: an entity that asks the scheduler what a job is
     # doing would otherwise be created while there is nothing to ask, and
     # would report "out of season" until the next poll.
