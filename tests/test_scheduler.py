@@ -73,7 +73,6 @@ JOB_INPUT = {
     "start_time": "18:00:00",
     "duration_minutes": 60,
     "frequency": "weekly",
-    "advanced": False,
 }
 
 #: What the flow stores once its defaults are filled in.
@@ -348,7 +347,17 @@ async def test_every_job_subentry_gets_an_armed_runner(
     result = await hass.config_entries.subentries.async_init(
         (mock_entry.entry_id, SUBENTRY_TYPE_JOB), context={"source": "user"}
     )
-    await hass.config_entries.subentries.async_configure(result["flow_id"], JOB_INPUT)
+    # Repeating, so the flow asks about the season before it finishes.
+    result = await hass.config_entries.subentries.async_configure(result["flow_id"], JOB_INPUT)
+    await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        {
+            "name": "Tuesdays",
+            "title": "Tennis",
+            "window_days": 14,
+            "strategy": "precise",
+        },
+    )
     await hass.async_block_till_done()
 
     scheduler = mock_entry.runtime_data.scheduler

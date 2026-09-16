@@ -17,7 +17,6 @@ from homeassistant.helpers import selector
 from homeassistant.util import dt as dt_util
 
 from ..const import (
-    CONF_ADVANCED,
     CONF_DURATION,
     CONF_FREQUENCY,
     CONF_NAME,
@@ -130,7 +129,6 @@ def essentials_schema(
             vol.Required(CONF_FREQUENCY, default=Frequency.ONCE): selector.SelectSelector(
                 selector.SelectSelectorConfig(options=REPEAT_OPTIONS)
             ),
-            vol.Optional(CONF_ADVANCED, default=False): selector.BooleanSelector(),
         }
     )
 
@@ -192,10 +190,12 @@ class JobSubentryFlowHandler(ConfigSubentryFlow):
         if user_input is not None:
             errors = validate_against_venue(user_input, rules)
             if not errors:
-                self._essentials = {
-                    key: value for key, value in user_input.items() if key != CONF_ADVANCED
-                }
-                if user_input.get(CONF_ADVANCED):
+                self._essentials = dict(user_input)
+                if Frequency(user_input[CONF_FREQUENCY]) is not Frequency.ONCE:
+                    # Only a repeating job has anything left to decide: when
+                    # the season ends, what to call it, who to tell. A single
+                    # date needs none of that, and a toggle offering it was a
+                    # control that did nothing for most people who saw it.
                     return await self.async_step_advanced()
                 data = self._with_defaults(self._essentials, rules, spaces)
                 return self.async_create_entry(title=data[CONF_NAME], data=data)
@@ -231,9 +231,6 @@ class JobSubentryFlowHandler(ConfigSubentryFlow):
         subentry = self._get_reconfigure_subentry()
         schema = essentials_schema(spaces, rules, bookings, dt_util.utcnow()).extend(
             advanced_schema(rules, str(subentry.data.get(CONF_NAME, ""))).schema
-        )
-        schema = vol.Schema(
-            {key: value for key, value in schema.schema.items() if str(key) != CONF_ADVANCED}
         )
         if user_input is not None:
             errors = validate_against_venue(user_input, rules)

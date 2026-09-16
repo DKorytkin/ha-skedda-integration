@@ -143,3 +143,55 @@ async def test_a_pending_slot_disappears_once_it_is_booked(
     starts = [event["start"] for event in events[PENDING]["events"]]
     assert slot_start.isoformat() not in starts
     assert starts, "the weeks after it are still pending"
+
+
+async def test_the_pending_calendar_stops_at_the_horizon(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """A weekly job runs for years; a calendar of every future slot is noise."""
+    from custom_components.skedda_scheduler.calendar import PENDING_HORIZON
+
+    await setup_with_job(hass, mock_entry)
+
+    events = await hass.services.async_call(
+        "calendar",
+        "get_events",
+        {
+            "entity_id": PENDING,
+            "start_date_time": dt_util.utcnow().isoformat(),
+            "end_date_time": (dt_util.utcnow() + timedelta(days=365)).isoformat(),
+        },
+        blocking=True,
+        return_response=True,
+    )
+
+    latest = max(event["start"] for event in events[PENDING]["events"])
+    assert latest < (dt_util.utcnow() + PENDING_HORIZON).isoformat()
+
+
+async def test_a_fortnightly_job_is_cut_off_by_the_horizon_not_the_count(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Twelve fortnights reach further than three months.
+
+    The two guards catch different jobs, which is why both are there.
+    """
+    from custom_components.skedda_scheduler.calendar import PENDING_HORIZON
+
+    await setup_with_job(hass, mock_entry, frequency="biweekly")
+
+    events = await hass.services.async_call(
+        "calendar",
+        "get_events",
+        {
+            "entity_id": PENDING,
+            "start_date_time": dt_util.utcnow().isoformat(),
+            "end_date_time": (dt_util.utcnow() + timedelta(days=365)).isoformat(),
+        },
+        blocking=True,
+        return_response=True,
+    )
+
+    found = events[PENDING]["events"]
+    assert len(found) < 12, "the horizon bit before the count did"
+    assert max(event["start"] for event in found) < (dt_util.utcnow() + PENDING_HORIZON).isoformat()

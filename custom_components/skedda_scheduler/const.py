@@ -27,7 +27,6 @@ CONF_TITLE: Final = "title"
 CONF_STRATEGY: Final = "strategy"
 CONF_NOTIFY_TARGETS: Final = "notify_targets"
 CONF_ENABLED: Final = "enabled"
-CONF_ADVANCED: Final = "advanced"
 CONF_NAME: Final = "name"
 
 ATTR_JOB_ID: Final = "job_id"

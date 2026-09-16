@@ -18,7 +18,6 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.skedda_scheduler.api.errors import SkeddaConnectionError
 from custom_components.skedda_scheduler.config_flow import SkeddaConfigFlow
 from custom_components.skedda_scheduler.const import (
-    CONF_ADVANCED,
     CONF_DURATION,
     CONF_FREQUENCY,
     CONF_NAME,
@@ -33,8 +32,8 @@ from custom_components.skedda_scheduler.core.provider import Booking
 KYIV = ZoneInfo("Europe/Kyiv")
 
 #: 29 September 2026 is a Tuesday.
-#: What the short form collects, minus the toggle that opens the second step.
-ESSENTIALS: dict[str, Any] = {
+#: The four answers only the person can give, plus whether to repeat.
+JOB_INPUT: dict[str, Any] = {
     "space_id": "2000001",
     "start_date": "2026-09-29",
     "start_time": "20:00:00",
@@ -42,14 +41,7 @@ ESSENTIALS: dict[str, Any] = {
     "frequency": "once",
 }
 
-JOB_INPUT: dict[str, Any] = {
-    "space_id": "2000001",
-    "start_date": "2026-09-29",
-    "start_time": "20:00:00",
-    "duration_minutes": 60,
-    "frequency": "once",
-    "advanced": False,
-}
+ESSENTIALS = JOB_INPUT
 
 
 async def setup_entry(hass: HomeAssistant, entry: MockConfigEntry) -> None:
@@ -119,6 +111,7 @@ async def test_the_job_names_itself_the_way_a_person_would_say_it(
 async def test_a_repeating_job_names_itself_by_the_weekday(
     hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
 ) -> None:
+    """Choosing to repeat opens the second step, which suggests the name."""
     await setup_entry(hass, mock_entry)
     result = await start_job_flow(hass, mock_entry)
 
@@ -126,7 +119,8 @@ async def test_a_repeating_job_names_itself_by_the_weekday(
         result["flow_id"], {**JOB_INPUT, CONF_FREQUENCY: "weekly"}
     )
 
-    assert result["title"] == "Court 1 · Tuesdays 20:00"
+    assert result["step_id"] == "advanced"
+    assert default_for(result["data_schema"], CONF_NAME) == "Court 1 · Tuesdays 20:00"
 
 
 async def test_the_form_asks_for_a_date_not_a_weekday(
@@ -201,7 +195,6 @@ async def test_repeating_is_off_until_you_ask_for_it(
     result = await start_job_flow(hass, mock_entry)
 
     assert default_for(result["data_schema"], CONF_FREQUENCY) == "once"
-    assert default_for(result["data_schema"], CONF_ADVANCED) is False
 
 
 async def test_the_second_step_is_there_for_those_who_want_it(
@@ -211,7 +204,7 @@ async def test_the_second_step_is_there_for_those_who_want_it(
     result = await start_job_flow(hass, mock_entry)
 
     result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {**JOB_INPUT, CONF_FREQUENCY: "weekly", CONF_ADVANCED: True}
+        result["flow_id"], {**JOB_INPUT, CONF_FREQUENCY: "weekly"}
     )
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "advanced"
@@ -257,7 +250,7 @@ async def test_a_window_beyond_the_venue_s_horizon_is_refused_up_front(
     await setup_entry(hass, mock_entry)
     result = await start_job_flow(hass, mock_entry)
     result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {**JOB_INPUT, CONF_ADVANCED: True}
+        result["flow_id"], {**JOB_INPUT, CONF_FREQUENCY: "weekly"}
     )
 
     result = await hass.config_entries.subentries.async_configure(
@@ -300,8 +293,6 @@ async def test_editing_a_job_shows_everything_at_once(
     )
     assert result["step_id"] == "reconfigure"
     assert field(result["data_schema"], CONF_NAME) is not None
-    with pytest.raises(AssertionError):
-        field(result["data_schema"], CONF_ADVANCED)
 
     result = await hass.config_entries.subentries.async_configure(
         result["flow_id"],
@@ -363,3 +354,28 @@ async def test_the_repeat_choice_is_once_or_weekly(
 
     options = field(result["data_schema"], CONF_FREQUENCY).config["options"]
     assert [option["value"] for option in options] == ["once", "weekly"]
+
+
+async def test_a_one_off_is_finished_in_one_screen(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Nothing is left to decide: a single date has no season, and the name,
+    window and strategy all follow from the four answers already given."""
+    await setup_entry(hass, mock_entry)
+    result = await start_job_flow(hass, mock_entry)
+
+    result = await hass.config_entries.subentries.async_configure(result["flow_id"], JOB_INPUT)
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_the_form_has_no_control_that_does_nothing(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """A toggle named "more options" showed nothing until Submit was pressed,
+    which read as a control that did not work."""
+    await setup_entry(hass, mock_entry)
+    result = await start_job_flow(hass, mock_entry)
+
+    with pytest.raises(AssertionError):
+        field(result["data_schema"], "advanced")

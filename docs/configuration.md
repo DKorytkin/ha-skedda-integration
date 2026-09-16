@@ -64,7 +64,8 @@ then has nothing left to do. `Every week` or `Every other week` keeps booking
 the same weekday - taken from the date you picked, so the two can never
 disagree.
 
-Everything else is derived and hidden behind **More options**:
+Choosing to repeat opens a second step, because a repeating job is the only
+kind with anything left to decide. A one-off is finished in one screen:
 
 | Field | Default |
 |---|---|
