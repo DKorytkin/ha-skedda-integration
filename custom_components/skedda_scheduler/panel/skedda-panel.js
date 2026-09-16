@@ -26,6 +26,7 @@ const STRINGS = {
     authorised: "authorised",
     signInProblem: "sign-in problem",
     manage: "Manage",
+    addJobShort: "Add booking job",
     existingBookings: "Existing bookings",
     bookingJobs: "Booking jobs",
     when: "When",
@@ -56,6 +57,7 @@ const STRINGS = {
     authorised: "авторизований",
     signInProblem: "помилка авторизації",
     manage: "Керувати",
+    addJobShort: "Додати завдання",
     existingBookings: "Наявні бронювання",
     bookingJobs: "Завдання бронювання",
     when: "Коли",
@@ -150,14 +152,21 @@ class SkeddaPanel extends HTMLElement {
         .brand { display: flex; align-items: center; gap: 12px; }
         .brand svg { width: 34px; height: 34px; }
         .brand span { font-size: 22px; font-weight: 500; color: var(--primary-text-color); }
-        .accounts { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+        .accounts {
+          margin-left: auto; display: flex; flex-direction: column; gap: 8px;
+          min-width: 260px; max-width: 420px;
+        }
         .chip {
-          display: flex; align-items: center; gap: 8px;
+          display: flex; align-items: center; gap: 10px;
           background: var(--card-background-color, #fff);
-          border-radius: 999px; padding: 6px 14px;
+          border-radius: 12px; padding: 8px 12px;
           box-shadow: var(--ha-card-box-shadow, 0 1px 3px rgba(0,0,0,.12));
           font-size: 13px; color: var(--primary-text-color); text-decoration: none;
         }
+        .chip .who { display: flex; flex-direction: column; line-height: 1.35; min-width: 0; }
+        .chip .who strong { font-weight: 500; }
+        .chip .who span { font-size: 12px; }
+        .chip .link { margin-left: auto; white-space: nowrap; }
         .card {
           background: var(--card-background-color, #fff);
           border-radius: var(--ha-card-border-radius, 12px);
@@ -215,14 +224,14 @@ class SkeddaPanel extends HTMLElement {
       ${this._error ? `<div class="card"><div class="error">${esc(this._error)}</div></div>` : ""}
       ${card(
         t.existingBookings,
-        `<a class="button" href="${SETTINGS_URL}">${esc(t.addJob)}</a>`,
+        "",
         [t.when, t.court, t.account, ""],
         bookings.map((booking) => bookingRow(t, booking)),
         t.noBookings,
       )}
       ${card(
         t.bookingJobs,
-        "",
+        `<a class="button" href="${SETTINGS_URL}">${esc(t.addJobShort)}</a>`,
         [t.nextSlot, t.court, t.account, t.status, ""],
         jobs.map((job) => jobRow(t, job)),
         t.noJobs,
@@ -236,13 +245,16 @@ function header(t, accounts) {
     ? accounts
         .map(
           (account) => `
-          <a class="chip" href="${SETTINGS_URL}" title="${esc(account.venue || "")}">
+          <div class="chip">
             <span class="dot ${account.authenticated ? "ok" : "bad"}"></span>
-            ${esc(account.title)}
-            <span class="muted">${esc(
-              account.authenticated ? t.authorised : t.signInProblem,
-            )}</span>
-          </a>`,
+            <span class="who">
+              <strong>${esc(account.title)}</strong>
+              <span class="muted">${esc(account.venue || "")} · ${esc(
+                account.authenticated ? t.authorised : t.signInProblem,
+              )}</span>
+            </span>
+            <a class="link" href="${SETTINGS_URL}">${esc(t.manage)}</a>
+          </div>`,
         )
         .join("")
     : `<a class="chip" href="${SETTINGS_URL}">${esc(t.noAccounts)}</a>`;

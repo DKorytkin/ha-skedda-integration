@@ -135,3 +135,39 @@ async def test_a_job_past_its_season_reads_as_out_of_season(
 
     assert hass.states.get(STATUS).state == "out_of_season"
     assert hass.states.get(NEXT_RUN).state == "unknown"
+
+
+async def test_a_job_device_is_labelled_with_its_court(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """A device model is free text Home Assistant cannot translate.
+
+    "Booking job" would stay English under a Ukrainian interface, and the page
+    already says what kind of thing this is.
+    """
+    from homeassistant.helpers import device_registry as dr
+
+    from custom_components.skedda_scheduler.const import DOMAIN
+
+    subentry_id = await setup_with_job(hass, mock_entry)
+
+    device = dr.async_get(hass).async_get_device_by_identifier(
+        (DOMAIN, f"{mock_entry.entry_id}:{subentry_id}"), mock_entry.entry_id
+    )
+    assert device.model == "Court 1"
+
+
+async def test_a_job_on_a_court_the_venue_no_longer_lists_still_has_a_device(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """A court can be renamed or removed while a job still points at it."""
+    from homeassistant.helpers import device_registry as dr
+
+    from custom_components.skedda_scheduler.const import DOMAIN
+
+    subentry_id = await setup_with_job(hass, mock_entry, space_id="9999999")
+
+    device = dr.async_get(hass).async_get_device_by_identifier(
+        (DOMAIN, f"{mock_entry.entry_id}:{subentry_id}"), mock_entry.entry_id
+    )
+    assert device.model == "9999999"

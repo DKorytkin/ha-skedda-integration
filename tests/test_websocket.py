@@ -314,3 +314,40 @@ async def test_cancelling_on_an_account_that_is_not_loaded_says_so(
 
     assert response["success"] is False
     assert response["error"]["code"] == "not_loaded"
+
+
+async def test_two_accounts_are_both_listed_with_their_own_jobs(
+    hass: HomeAssistant,
+    hass_ws_client: Any,
+    mock_entry: MockConfigEntry,
+    mock_provider: AsyncMock,
+) -> None:
+    """Two people booking from one Home Assistant is the point of accounts.
+
+    Each has an hour a week of their own, so the panel has to keep them apart.
+    """
+    from custom_components.skedda_scheduler.const import CONF_VENUE, DOMAIN
+    from tests.conftest import ENTRY_DATA
+    from tests.helpers import add_job_subentry
+
+    await setup_with_job(hass, mock_entry)
+
+    second = MockConfigEntry(
+        domain=DOMAIN,
+        data={**ENTRY_DATA, CONF_VENUE: "galaktyka"},
+        title="Vika",
+        unique_id="galaktyka:vika@example.com",
+        entry_id="entry-vika",
+    )
+    second.add_to_hass(hass)
+    add_job_subentry(hass, second, "sub-vika", name="Vika Thursdays")
+    assert await hass.config_entries.async_setup(second.entry_id)
+    await hass.async_block_till_done()
+    client = await hass_ws_client(hass)
+
+    result = await overview(client)
+
+    both = ["Main account (Oleh)", "Vika"]
+    assert sorted(account["title"] for account in result["accounts"]) == both
+    assert sorted(job["account"] for job in result["jobs"]) == both
+    assert {job["entry_id"] for job in result["jobs"]} == {mock_entry.entry_id, "entry-vika"}

@@ -101,3 +101,28 @@ async def test_the_script_url_changes_when_the_script_does(
     assert module_url.startswith(SCRIPT_URL)
     assert "?v=" in module_url
     assert module_url.split("?v=")[1] == script_version()
+
+
+def test_the_panel_lists_every_account_rather_than_the_first() -> None:
+    """With two people booking from one Home Assistant, whose hour is spent is
+    the first question, and each account needs its own way in."""
+    source = PANEL_JS.read_text(encoding="utf-8")
+
+    assert (
+        "accounts\n        .map(" in source
+        or "accounts\n    .map(" in source
+        or "accounts.map(" in source
+    )
+    assert "flex-direction: column" in source
+    assert "t.manage" in source
+
+
+def test_creating_a_job_is_offered_where_the_jobs_are() -> None:
+    """Offered next to the bookings it read as "book a court by hand", which
+    Skedda's own site does better."""
+    source = PANEL_JS.read_text(encoding="utf-8")
+
+    jobs_card = source.split("t.bookingJobs,")[1]
+    assert "addJobShort" in jobs_card
+    bookings_card = source.split("t.existingBookings,")[1].split("t.bookingJobs,")[0]
+    assert "addJob" not in bookings_card

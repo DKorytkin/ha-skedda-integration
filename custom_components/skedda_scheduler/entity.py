@@ -48,8 +48,18 @@ class SkeddaJobEntity(CoordinatorEntity[SkeddaCoordinator]):
             identifiers={(DOMAIN, f"{entry.entry_id}:{job.job_id}")},
             name=job.name,
             manufacturer="Skedda",
-            model="Booking job",
+            # The court rather than the words "Booking job": a device model is
+            # free text that Home Assistant cannot translate, and the interface
+            # already says what kind of thing this is.
+            model=_court_name(coordinator, job),
             # Not a thing in a room, but still a thing worth grouping.
             entry_type=DeviceEntryType.SERVICE,
             configuration_url=f"https://{entry.data[CONF_VENUE]}.skedda.com",
         )
+
+
+def _court_name(coordinator: SkeddaCoordinator, job: BookingJob) -> str:
+    for space in coordinator.data.spaces:
+        if space.id == job.primary_space_id:
+            return space.name
+    return job.primary_space_id
