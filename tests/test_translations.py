@@ -95,3 +95,29 @@ def _all_strings(node: Any, prefix: str = "") -> dict[str, str]:
         for key, value in node.items():
             found |= _all_strings(value, f"{prefix}.{key}" if prefix else key)
     return found
+
+
+@pytest.mark.parametrize("language", [*LANGUAGES, "source"])
+def test_every_field_description_describes_a_field_that_exists(language: str) -> None:
+    """Home Assistant refuses a description for a field that is not there.
+
+    Removing a field from a form is easy to do without removing the sentence
+    under it, and hassfest fails the build for it - a round trip through CI to
+    learn something checkable here.
+    """
+    path = (
+        COMPONENT / "strings.json"
+        if language == "source"
+        else COMPONENT / "translations" / f"{language}.json"
+    )
+    document = load(path)
+
+    for section in ("config", "config_subentries", "options"):
+        for flow in document.get(section, {}).values():
+            steps = flow.get("step", flow) if isinstance(flow, dict) else {}
+            for name, step in steps.items():
+                if not isinstance(step, dict):
+                    continue
+                described = set(step.get("data_description", {}))
+                fields = set(step.get("data", {}))
+                assert described <= fields, f"{path.name} {section}.{name}: {described - fields}"

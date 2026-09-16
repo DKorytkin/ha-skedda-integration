@@ -114,7 +114,6 @@
             "start_date": "The date to book. This venue accepts bookings up to {horizon} days ahead.",
             "duration_minutes": "The venue allows {quota} minutes per week.",
             "frequency": "Book this once, or keep booking the same weekday.",
-            "advanced": "Season dates, the booking window, the strategy and notifications.",
             "season_end": "When the season ends and the court closes. Leave empty to keep going.",
             "window_days": "This venue opens bookings {horizon} days ahead. Match it exactly: earlier is refused, later is too late.",
             "strategy": "Precise fires the request the instant the window opens. Immediate fires once and retries."
