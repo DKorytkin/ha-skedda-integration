@@ -57,6 +57,8 @@ class FakeSkedda:
     """Routes requests by (method, path) to canned responses."""
 
     def __init__(self) -> None:
+        #: Filled in by whichever fixture started the server.
+        self.base_url = ""
         self.stubs: dict[tuple[str, str], Stub] = {}
         self.queued: dict[tuple[str, str], deque[Stub]] = defaultdict(deque)
         self.requests: list[Recorded] = []
@@ -127,6 +129,25 @@ async def skedda(
     base = str(server.make_url("")).rstrip("/")
     monkeypatch.setattr(endpoints, "LOGIN_HOST", base)
     monkeypatch.setattr(endpoints, "base_url", lambda venue: base)
+    try:
+        yield fake
+    finally:
+        await server.close()
+
+
+@pytest.fixture
+async def google(socket_enabled: None) -> AsyncIterator[FakeSkedda]:
+    """A second local server, standing in for Google.
+
+    The same fake: it routes by method and path and records what arrived,
+    which is all either transport needs from it.
+    """
+    fake = FakeSkedda()
+    app = web.Application()
+    app.router.add_route("*", "/{tail:.*}", fake._handle)
+    server = TestServer(app)
+    await server.start_server()
+    fake.base_url = str(server.make_url("")).rstrip("/")
     try:
         yield fake
     finally:

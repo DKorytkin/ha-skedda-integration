@@ -52,8 +52,17 @@ RULES = VenueRules(
 
 
 async def start_user_flow(hass: HomeAssistant) -> dict[str, Any]:
-    return await hass.config_entries.flow.async_init(
+    """Open the flow and choose the account branch.
+
+    The first screen is a menu: an account, or the Google calendar to write
+    bookings into.
+    """
+    menu = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    assert menu["type"] is FlowResultType.MENU
+    return await hass.config_entries.flow.async_configure(
+        menu["flow_id"], {"next_step_id": "account"}
     )
 
 

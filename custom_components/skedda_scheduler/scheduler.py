@@ -18,6 +18,7 @@ from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.util import dt as dt_util
 
+from . import google_calendar
 from .api.errors import (
     ApiContractError,
     AuthExpiredError,
@@ -37,7 +38,7 @@ from .core.result import AttemptStatus, BookingAttempt, BookingOutcome
 from .core.strategy import build_strategy, should_retry
 from .job_factory import build_job, venue_timezone_for
 from .repairs import async_clear_contract_issue, async_raise_contract_issue
-from .sinks import ResultSink, async_dispatch, build_default_sinks
+from .sinks import ResultSink, async_dispatch, build_sinks
 from .store import AttemptStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -411,11 +412,11 @@ class JobScheduler:
         return dict(self._runners)
 
     @callback
-    def async_sync_jobs(self) -> None:
+    def async_sync_jobs(self, sinks: Sequence[ResultSink] | None = None) -> None:
         """Rebuild every runner from the entry's subentries."""
         runtime = self.entry.runtime_data
         timezone = venue_timezone_for(self.hass, self.entry)
-        sinks = build_default_sinks(self.hass)
+        sinks = list(sinks) if sinks is not None else build_sinks(self.hass)
 
         self.async_shutdown()
         for subentry_id, subentry in self.entry.subentries.items():
@@ -470,3 +471,8 @@ class JobScheduler:
             _LOGGER.warning("No runner for job %s", job_id)
             return None
         return await runner.async_run_now()
+
+
+async def async_build_job_sinks(hass: HomeAssistant) -> list[ResultSink]:
+    """Where a finished run reports to, including the calendar if linked."""
+    return build_sinks(hass, await google_calendar.async_build_sink(hass))

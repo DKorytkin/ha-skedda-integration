@@ -14,6 +14,21 @@ CONF_VENUE_TIMEZONE: Final = "venue_timezone"
 
 SUBENTRY_TYPE_JOB: Final = "job"
 
+#: A config entry is either a Skedda account or the Google calendar link.
+#: One domain, two kinds of entry: the calendar is not owned by any one
+#: account, and OAuth in Home Assistant is a config-entry flow.
+CONF_ENTRY_KIND: Final = "entry_kind"
+ENTRY_KIND_ACCOUNT: Final = "account"
+ENTRY_KIND_CALENDAR: Final = "google_calendar"
+
+CONF_CALENDAR_ID: Final = "calendar_id"
+CONF_EVENT_TITLE: Final = "event_title"
+CONF_LOCATION: Final = "location"
+CONF_ATTENDEES: Final = "attendees"
+
+#: What a court booking is called in a calendar, unless you say otherwise.
+DEFAULT_EVENT_TITLE: Final = "Tennis 🎾"
+
 CONF_SPACE_ID: Final = "space_id"
 CONF_WEEKDAY: Final = "weekday"
 CONF_START_DATE: Final = "start_date"

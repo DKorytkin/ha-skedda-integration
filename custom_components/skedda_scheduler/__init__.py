@@ -5,19 +5,25 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, Platform
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.typing import ConfigType
 
+# Imported as a module: a from-import binds the function here at import
+# time, and the tests that stand in for Google would never be seen.
+from . import google_calendar
 from .api.client import SkeddaClient
+from .api.errors import SkeddaAuthError, SkeddaError
 from .api.models import SkeddaCredentials
 from .const import CONF_VENUE, DOMAIN
 from .coordinator import SkeddaCoordinator
+from .google_calendar import is_calendar_entry
 from .panel import async_register_panel
-from .scheduler import JobScheduler
+from .scheduler import JobScheduler, async_build_job_sinks
 from .services import async_setup_services
 from .skedda_provider import SkeddaProvider
 from .store import AttemptStore
@@ -58,6 +64,33 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bool:
+    """Set up one entry, of whichever kind it is."""
+    if is_calendar_entry(entry):
+        return await _async_setup_calendar(hass, entry)
+    return await _async_setup_account(hass, entry)
+
+
+async def _async_setup_calendar(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bool:
+    """Prove the Google link still works, and let the accounts find it.
+
+    Nothing else to set up: it has no coordinator, no scheduler and no
+    entities. Every booking job reads it when a booking lands.
+    """
+    try:
+        await google_calendar.async_build_client(hass, entry)
+    except SkeddaAuthError as err:
+        raise ConfigEntryAuthFailed(str(err)) from err
+    except SkeddaError as err:
+        raise ConfigEntryNotReady(str(err)) from err
+    # An account set up before the calendar would otherwise write nothing
+    # until its next reload.
+    for other in hass.config_entries.async_entries(DOMAIN):
+        if not is_calendar_entry(other) and other.state is ConfigEntryState.LOADED:
+            hass.config_entries.async_schedule_reload(other.entry_id)
+    return True
+
+
+async def _async_setup_account(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bool:
     """Set up one Skedda account.
 
     Credentials are not verified here: the coordinator's first refresh does
@@ -101,7 +134,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bo
     # would report "out of season" until the next poll.
     scheduler = JobScheduler(hass, entry)
     entry.runtime_data.scheduler = scheduler
-    scheduler.async_sync_jobs()
+    scheduler.async_sync_jobs(await async_build_job_sinks(hass))
     entry.async_on_unload(scheduler.async_shutdown)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -110,6 +143,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bo
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bool:
+    if is_calendar_entry(entry):
+        return True
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
@@ -119,6 +154,8 @@ async def async_reload_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> N
 
 async def async_remove_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> None:
     """Take the account's booking history with it."""
+    if is_calendar_entry(entry):
+        return
     await AttemptStore(hass, entry).async_remove()
 
 

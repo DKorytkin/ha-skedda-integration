@@ -2,6 +2,14 @@
   "config": {
     "step": {
       "user": {
+        "title": "What are you adding?",
+        "description": "An account to book with, or the calendar your bookings should appear in.",
+        "menu_options": {
+          "account": "Skedda account",
+          "calendar": "Google Calendar"
+        }
+      },
+      "account": {
         "title": "Add a Skedda account",
         "description": "Sign in with the account you normally book with. The venue is the first part of your Skedda address: for `myclub.skedda.com` that is `myclub`.",
         "data": {
@@ -13,6 +21,21 @@
         "data_description": {
           "venue": "The subdomain only, without `.skedda.com`.",
           "alias": "Shown in Home Assistant. Leave empty to use the venue name."
+        }
+      },
+      "calendar_settings": {
+        "title": "Where the bookings go",
+        "description": "Every booking that lands becomes an event here, and the people you list are invited to it.",
+        "data": {
+          "calendar_id": "Calendar",
+          "event_title": "Event title",
+          "location": "Address",
+          "attendees": "Invite by email"
+        },
+        "data_description": {
+          "calendar_id": "Only calendars you can write to are listed.",
+          "location": "Shown on the event and used for directions.",
+          "attendees": "Google emails each of them an invitation. Leave empty to book quietly."
         }
       },
       "reauth_confirm": {
@@ -47,7 +70,9 @@
       "already_configured": "This account is already set up.",
       "account_mismatch": "Those details belong to a different account. Add it as a new account instead of editing this one.",
       "reauth_successful": "Signed in again.",
-      "reconfigure_successful": "The account was updated."
+      "reconfigure_successful": "The account was updated.",
+      "calendar_list_failed": "Google could not be asked which calendars you have. Try again in a moment.",
+      "no_writable_calendar": "This Google account has no calendar you can write to."
     }
   },
   "config_subentries": {

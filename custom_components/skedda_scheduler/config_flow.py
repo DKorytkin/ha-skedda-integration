@@ -1,8 +1,14 @@
 """Config flow for Skedda Scheduler.
 
-Collects one Skedda account per config entry: the venue subdomain, the login,
-and a name to tell several accounts apart. Booking jobs are added afterwards as
-subentries, so this flow is only ever about credentials.
+Two kinds of entry share this flow, so it opens with a menu:
+
+* a **Skedda account** - venue, login, and a name to tell several apart;
+* the **Google calendar** link, so a booking can become an event with the
+  people who are coming invited to it.
+
+They are separate entries rather than one because the calendar belongs to no
+particular account, and because OAuth in Home Assistant is a config-entry flow.
+Booking jobs remain subentries of an account.
 """
 
 from __future__ import annotations
@@ -13,12 +19,12 @@ from typing import Any
 
 from homeassistant.config_entries import (
     ConfigEntry,
-    ConfigFlow,
     ConfigFlowResult,
     ConfigSubentryFlow,
 )
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import callback
+from homeassistant.helpers import config_entry_oauth2_flow
 
 from .api.errors import (
     SignInBlockedError,
@@ -26,11 +32,14 @@ from .api.errors import (
     SkeddaConnectionError,
     SkeddaError,
 )
+from .api.google import SCOPES
 from .const import (
     CONF_ALIAS,
+    CONF_ENTRY_KIND,
     CONF_VENUE,
     CONF_VENUE_TIMEZONE,
     DOMAIN,
+    ENTRY_KIND_ACCOUNT,
     SUBENTRY_TYPE_JOB,
 )
 from .core.provider import VenueRules
@@ -39,15 +48,36 @@ from .core.provider import VenueRules
 # flow's tests patch, and a from-import would bind it here at import time.
 from .flows import account
 from .flows.account import STEP_REAUTH_SCHEMA, STEP_USER_SCHEMA, normalise, unique_id_for
+from .flows.calendar import async_calendar_step
 from .flows.job import JobSubentryFlowHandler
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class SkeddaConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Collects one Skedda account per config entry."""
+class SkeddaConfigFlow(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, domain=DOMAIN):
+    """Collects a Skedda account, or the Google calendar to write bookings to."""
 
+    #: The OAuth handler reads this attribute; the class keyword above only
+    #: registers the flow.
+    DOMAIN = DOMAIN
     VERSION = 1
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._token_data: dict[str, Any] = {}
+
+    @property
+    def logger(self) -> logging.Logger:
+        return _LOGGER
+
+    @property
+    def extra_authorize_data(self) -> dict[str, Any]:
+        """What to ask Google for.
+
+        offline access and a forced consent screen, because without a refresh
+        token the link works until the first hour is up and then stops.
+        """
+        return {"scope": SCOPES, "access_type": "offline", "prompt": "consent"}
 
     @classmethod
     @callback
@@ -58,6 +88,28 @@ class SkeddaConfigFlow(ConfigFlow, domain=DOMAIN):
         return {SUBENTRY_TYPE_JOB: JobSubentryFlowHandler}
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Ask which of the two things is being added."""
+        return self.async_show_menu(step_id="user", menu_options=["account", "calendar"])
+
+    async def async_step_calendar(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Hand over to Home Assistant's OAuth flow."""
+        return await self.async_step_pick_implementation()
+
+    async def async_oauth_create_entry(self, data: dict[str, Any]) -> ConfigFlowResult:
+        """Google has answered; now ask which calendar, and who is coming."""
+        self._token_data = data
+        return await self.async_step_calendar_settings()
+
+    async def async_step_calendar_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return await async_calendar_step(self, self._token_data, user_input)
+
+    async def async_step_account(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Add an account."""
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -70,9 +122,13 @@ class SkeddaConfigFlow(ConfigFlow, domain=DOMAIN):
             if rules is not None:
                 return self.async_create_entry(
                     title=data[CONF_ALIAS] or data[CONF_VENUE],
-                    data={**data, CONF_VENUE_TIMEZONE: rules.timezone},
+                    data={
+                        **data,
+                        CONF_VENUE_TIMEZONE: rules.timezone,
+                        CONF_ENTRY_KIND: ENTRY_KIND_ACCOUNT,
+                    },
                 )
-        return self.async_show_form(step_id="user", data_schema=STEP_USER_SCHEMA, errors=errors)
+        return self.async_show_form(step_id="account", data_schema=STEP_USER_SCHEMA, errors=errors)
 
     async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
         """Skedda rejected the stored password; ask for the new one."""

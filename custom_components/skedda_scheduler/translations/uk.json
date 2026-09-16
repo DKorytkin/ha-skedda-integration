@@ -2,6 +2,14 @@
   "config": {
     "step": {
       "user": {
+        "title": "Що додаємо?",
+        "description": "Акаунт, яким бронювати, або календар, у якому мають зʼявлятися броні.",
+        "menu_options": {
+          "account": "Акаунт Skedda",
+          "calendar": "Календар Google"
+        }
+      },
+      "account": {
         "title": "Додати акаунт Skedda",
         "description": "Увійдіть тим акаунтом, яким зазвичай бронюєте. Заклад — це перша частина вашої адреси в Skedda: для `myclub.skedda.com` це `myclub`.",
         "data": {
@@ -13,6 +21,21 @@
         "data_description": {
           "venue": "Лише субдомен, без `.skedda.com`.",
           "alias": "Показується в Home Assistant. Порожнє поле — буде взято назву закладу."
+        }
+      },
+      "calendar_settings": {
+        "title": "Куди потрапляють броні",
+        "description": "Кожна вдала бронь стає подією тут, а перелічені люди отримують запрошення.",
+        "data": {
+          "calendar_id": "Календар",
+          "event_title": "Назва події",
+          "location": "Адреса",
+          "attendees": "Запросити за email"
+        },
+        "data_description": {
+          "calendar_id": "Показані лише календарі, у які ви можете писати.",
+          "location": "Показується в події й веде до маршруту.",
+          "attendees": "Google надішле кожному запрошення. Порожньо — бронювати тихо."
         }
       },
       "reauth_confirm": {
@@ -47,7 +70,9 @@
       "already_configured": "Цей акаунт уже налаштовано.",
       "account_mismatch": "Ці дані належать іншому акаунту. Додайте його як новий акаунт, а не редагуйте цей.",
       "reauth_successful": "Вхід виконано знову.",
-      "reconfigure_successful": "Акаунт оновлено."
+      "reconfigure_successful": "Акаунт оновлено.",
+      "calendar_list_failed": "Не вдалося спитати Google про ваші календарі. Спробуйте за хвилину.",
+      "no_writable_calendar": "У цьому акаунті Google немає календаря, у який можна писати."
     }
   },
   "config_subentries": {
