@@ -7,6 +7,7 @@ rather than two.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
 
@@ -22,6 +23,16 @@ PANEL_URL = "skedda"
 PANEL_NAME = "skedda-panel"
 SCRIPT_URL = f"/{DOMAIN}/skedda-panel.js"
 SCRIPT_PATH = Path(__file__).parent / "skedda-panel.js"
+
+
+def script_version() -> str:
+    """A short fingerprint of the panel script.
+
+    The module url is what a browser caches against, so without this an
+    updated panel keeps rendering the previous one however many times Home
+    Assistant restarts.
+    """
+    return hashlib.sha256(SCRIPT_PATH.read_bytes()).hexdigest()[:12]
 
 
 async def async_register_panel(hass: HomeAssistant) -> None:
@@ -41,7 +52,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         hass,
         webcomponent_name=PANEL_NAME,
         frontend_url_path=PANEL_URL,
-        module_url=SCRIPT_URL,
+        module_url=f"{SCRIPT_URL}?v={await hass.async_add_executor_job(script_version)}",
         sidebar_title="Skedda",
         sidebar_icon="mdi:tennis",
         require_admin=True,

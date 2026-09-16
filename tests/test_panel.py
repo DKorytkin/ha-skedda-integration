@@ -10,7 +10,7 @@ from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.skedda_scheduler.const import DOMAIN
-from custom_components.skedda_scheduler.panel import PANEL_URL
+from custom_components.skedda_scheduler.panel import PANEL_URL, SCRIPT_URL, script_version
 from tests.helpers import setup_with_job
 
 PANEL_JS = Path("custom_components/skedda_scheduler/panel/skedda-panel.js")
@@ -82,3 +82,22 @@ def test_the_panel_can_release_a_booking_and_nothing_else() -> None:
     assert "skedda_scheduler/cancel_booking" in source
     assert "confirmCancel" in source
     assert "/config/integrations/integration/skedda_scheduler" in source
+
+
+async def test_the_script_url_changes_when_the_script_does(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Otherwise an update ships a panel nobody's browser will fetch.
+
+    The module url is what the frontend caches against; holding it still means
+    yesterday's panel keeps rendering however many times Home Assistant
+    restarts.
+    """
+    await setup_with_job(hass, mock_entry)
+
+    panel = hass.data[frontend.DATA_PANELS][PANEL_URL]
+    module_url = panel.config["_panel_custom"]["module_url"]
+
+    assert module_url.startswith(SCRIPT_URL)
+    assert "?v=" in module_url
+    assert module_url.split("?v=")[1] == script_version()
