@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 import voluptuous as vol
 from homeassistant.config_entries import SOURCE_RECONFIGURE, ConfigFlowResult
 from homeassistant.helpers import selector
-from homeassistant.helpers.aiohttp_client import async_create_clientsession
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from ..api.errors import SkeddaError
 from ..api.google import GoogleCalendarClient
@@ -72,7 +72,10 @@ async def async_calendar_step(
         if key in token_data
     }
 
-    session = async_create_clientsession(flow.hass)
+    # Home Assistant's own session: it owns the lifetime, and closing it here
+    # would take every other integration's requests down with it. Google needs
+    # no cookie jar of its own, unlike the venue.
+    session = async_get_clientsession(flow.hass)
 
     async def token() -> str:
         return str(token_data["token"]["access_token"])
@@ -83,8 +86,6 @@ async def async_calendar_step(
         # Nothing to choose from means nothing to save; saying so beats an
         # empty dropdown the user cannot get past.
         return flow.async_abort(reason="calendar_list_failed")
-    finally:
-        await session.close()
 
     if not calendars:
         return flow.async_abort(reason="no_writable_calendar")

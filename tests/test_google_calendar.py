@@ -11,6 +11,7 @@ import pytest
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -525,6 +526,9 @@ async def test_the_calendar_list_is_fetched_with_the_token_just_issued(
         await hass.config_entries.flow.async_configure(result["flow_id"])
 
     assert seen == ["brand-new"]
+    # Home Assistant owns this session; closing it would take every other
+    # integration's requests down with it.
+    assert not async_get_clientsession(hass).closed
 
 
 async def test_the_calendar_settings_can_be_changed_afterwards(
