@@ -135,7 +135,10 @@ async def skedda(
 
 @pytest.fixture
 async def http(socket_enabled: None) -> AsyncIterator[aiohttp.ClientSession]:
-    async with aiohttp.ClientSession() as session:
+    # unsafe=True keeps cookies set by an IP-literal host. The fake server runs
+    # on 127.0.0.1, and without this aiohttp silently drops its session cookie,
+    # which would make every test about sessions pass against an empty jar.
+    async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as session:
         yield session
 
 

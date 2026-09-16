@@ -17,6 +17,7 @@ dev = [
   "syrupy>=4.8",
   "ruff>=0.8",
   "mypy>=1.13",
+  "home-assistant-frontend>=20260826.7",
 ]
 
 [tool.ruff]

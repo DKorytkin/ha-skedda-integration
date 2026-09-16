@@ -1,3 +1,6 @@
+<img src="assets/skedda-icon-dark.svg#gh-light-mode-only" alt="" width="72" align="right">
+<img src="assets/skedda-icon-light.svg#gh-dark-mode-only" alt="" width="72" align="right">
+
 # Skedda Scheduler
 
 A Home Assistant integration that holds your regular slot at a venue that books
@@ -15,11 +18,11 @@ clock, then reports what happened as entities, events and notifications.
 
 ## Status
 
-v0.0.1 — the first release. Home Assistant 2026.3.0 or newer.
+v0.1.0. Home Assistant 2026.3.0 or newer.
 
-The code is complete and tested, but no booking has yet been placed by the
-integration running inside Home Assistant. Treat this release as one to try
-rather than one to rely on for a slot you care about.
+It books: the first courts were taken by the integration running inside Home
+Assistant on 16 September 2026. Treat it as young software all the same —
+every failure it has had so far was found by running it, not by reading it.
 
 ## How it works
 
@@ -64,6 +67,13 @@ add one booking job per recurring slot. Every field is explained in
 
 Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md)
 for the development setup and the two rules that matter most.
+
+## Trademark
+
+Skedda is a trademark of its owner. The logo in this repository is used to
+identify the service this integration talks to. This project is unofficial and
+is not affiliated with, endorsed by, or supported by Skedda. See
+[assets/README.md](assets/README.md).
 
 ## Licence
 

@@ -2,23 +2,28 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 import aiohttp
 import pytest
 
 from custom_components.skedda_scheduler.api import endpoints
-from custom_components.skedda_scheduler.api.client import SkeddaClient
+from custom_components.skedda_scheduler.api.client import WEBS_CACHE_SECONDS, SkeddaClient
 from custom_components.skedda_scheduler.api.errors import (
     ApiContractError,
     AuthExpiredError,
     QuotaExceededError,
     RateLimitedError,
+    SignInBlockedError,
     SkeddaAuthError,
     SkeddaConnectionError,
 )
 from custom_components.skedda_scheduler.api.models import SkeddaCredentials
 from tests.conftest import FakeSkedda
+
+WEBS = json.loads(Path("tests/fixtures/skedda/webs.json").read_text())
 
 CREDS = SkeddaCredentials(venue="myclub", email="user@example.com", password="secret")
 TOKEN = "CfDJ8-test-token"
@@ -32,9 +37,20 @@ LOGIN_OK = {"login": {"id": "7cdf5129d8064d788811a5b15a10955c", "redirectUrl": N
 DATE = {"Date": "Tue, 15 Sep 2026 11:54:59 GMT"}
 
 
+#: Skedda answers a successful sign-in with an HttpOnly session cookie; the
+#: fake sets one so that anything reading the jar is reading something real.
+SESSION_COOKIE = ".AspNet.ApplicationCookie=abc123; Path=/; HttpOnly"
+
+
 def stub_login(skedda: FakeSkedda, *, status: int = 200) -> None:
     skedda.stub("GET", endpoints.LOGIN_PAGE.path, text=LOGIN_PAGE_HTML, headers=DATE)
-    skedda.stub("POST", endpoints.LOGIN.path, status=status, json=LOGIN_OK, headers=DATE)
+    skedda.stub(
+        "POST",
+        endpoints.LOGIN.path,
+        status=status,
+        json=LOGIN_OK,
+        headers={**DATE, "Set-Cookie": SESSION_COOKIE},
+    )
 
 
 async def authenticated(http: aiohttp.ClientSession, skedda: FakeSkedda) -> SkeddaClient:
@@ -277,6 +293,8 @@ async def test_stored_cookies_are_masked_for_diagnostics(
 ) -> None:
     """Session cookies must never reach a diagnostics dump verbatim."""
     client = await authenticated(http, skedda)
+    assert client.session is not None
+    assert client.session.cookies, "the fake must hand out a session cookie"
     assert all(value == "***" for value in client.session.cookies.values())
 
 
@@ -296,6 +314,211 @@ async def test_a_connection_drop_mid_session_is_a_connection_error(
 ) -> None:
     """The venue host can vanish after login; the burst loop needs to retry."""
     client = await authenticated(http, skedda)
+    # Already holding this venue's token, so the failure lands on the request
+    # itself rather than on the page load that would otherwise fetch one.
+    client._venue_token = TOKEN
     monkeypatch.setattr(endpoints, "base_url", lambda venue: "http://127.0.0.1:1")
     with pytest.raises(SkeddaConnectionError):
         await client.request(endpoints.SPACES)
+
+
+async def test_a_rejected_login_is_reported_as_bad_credentials_not_a_contract_error(
+    http: aiohttp.ClientSession, skedda: FakeSkedda
+) -> None:
+    """Captured live 2026-09-15: Skedda answers a wrong password with 422.
+
+    It reuses the same error envelope as a booking-rule violation, so without
+    this the user is told the API changed and goes hunting for a bug, when the
+    real answer is that they mistyped their password.
+    """
+    client = SkeddaClient(http, CREDS)
+    skedda.stub("GET", endpoints.LOGIN_PAGE.path, text=LOGIN_PAGE_HTML, headers=DATE)
+    skedda.stub(
+        "POST",
+        endpoints.LOGIN.path,
+        status=422,
+        json={
+            "errors": [
+                {
+                    "source": {"pointer": "/data/attributes/arbitraryerrors"},
+                    "detail": "Sorry, your login credentials are not correct. Please "
+                    "double-check your email and password. You can use the login-reset "
+                    "feature if you have forgotten your password.",
+                }
+            ]
+        },
+    )
+
+    with pytest.raises(SkeddaAuthError, match="not correct"):
+        await client.authenticate()
+    assert not client.is_authenticated
+
+
+async def test_signing_in_again_starts_from_a_clean_slate(
+    http: aiohttp.ClientSession, skedda: FakeSkedda
+) -> None:
+    """Skedda refuses a login attempted while an old session is still held.
+
+    Observed live 2026-09-16: "our super detectives found a potential security
+    problem ... this can happen if you've logged in/out on another tab". A
+    reloaded config entry builds a new client over the same cookie jar, so the
+    second sign-in must drop what the first one left behind.
+    """
+    client = SkeddaClient(http, CREDS)
+    stub_login(skedda)
+    await client.authenticate()
+    assert len(http.cookie_jar) > 0
+
+    skedda.stub(
+        "POST",
+        endpoints.LOGIN.path,
+        status=400,
+        json={"errors": [{"detail": "your login credentials are not correct"}]},
+    )
+    seen: list[int] = []
+    original = client._fetch_antiforgery_token
+
+    async def watch(url: str) -> str:
+        seen.append(len(http.cookie_jar))
+        return await original(url)
+
+    client._fetch_antiforgery_token = watch  # type: ignore[method-assign]
+    with pytest.raises(SkeddaAuthError):
+        await client.authenticate()
+
+    assert seen == [0], "the login page must be fetched without a stale session"
+
+
+async def test_venue_requests_carry_a_token_from_the_venue_itself(
+    http: aiohttp.ClientSession, skedda: FakeSkedda
+) -> None:
+    """The contract says the token is per page load and host-scoped.
+
+    Sending the sign-in host's token to the venue is asking one server to
+    accept another's credential, and Skedda answers that with a page about a
+    "potential security problem" rather than with anything machine-readable.
+    """
+    venue_token = "CfDJ8-venue-token"
+    client = SkeddaClient(http, CREDS)
+    stub_login(skedda)
+    skedda.stub(
+        "GET",
+        "/",
+        text=LOGIN_PAGE_HTML.replace(TOKEN, venue_token),
+        headers=DATE,
+    )
+    skedda.stub("GET", endpoints.SPACES.path, json={"assets": []}, headers=DATE)
+    await client.authenticate()
+
+    await client.request(endpoints.SPACES)
+
+    sent = skedda.requests_for("GET", endpoints.SPACES.path)[0]
+    assert sent.headers[endpoints.ANTIFORGERY_HEADER] == venue_token
+
+
+async def test_a_venue_page_without_a_token_falls_back_to_the_one_we_have(
+    http: aiohttp.ClientSession, skedda: FakeSkedda
+) -> None:
+    """A venue that serves no token must not cost the user every booking."""
+    client = SkeddaClient(http, CREDS)
+    stub_login(skedda)
+    skedda.stub("GET", "/", text="<html>no token here</html>", headers=DATE)
+    skedda.stub("GET", endpoints.SPACES.path, json={"assets": []}, headers=DATE)
+    await client.authenticate()
+
+    await client.request(endpoints.SPACES)
+
+    sent = skedda.requests_for("GET", endpoints.SPACES.path)[0]
+    assert sent.headers[endpoints.ANTIFORGERY_HEADER] == TOKEN
+
+
+async def test_the_venue_token_is_fetched_once_per_session(
+    http: aiohttp.ClientSession, skedda: FakeSkedda
+) -> None:
+    """A page load before every request would double the cost of the burst."""
+    client = SkeddaClient(http, CREDS)
+    stub_login(skedda)
+    skedda.stub("GET", "/", text=LOGIN_PAGE_HTML, headers=DATE)
+    skedda.stub("GET", endpoints.SPACES.path, json={"assets": []}, headers=DATE)
+    await client.authenticate()
+
+    await client.request(endpoints.SPACES)
+    await client.request(endpoints.SPACES)
+
+    assert len(skedda.requests_for("GET", "/")) == 1
+
+
+async def test_a_refused_sign_in_attempt_is_not_a_wrong_password(
+    http: aiohttp.ClientSession, skedda: FakeSkedda
+) -> None:
+    """Observed live 2026-09-16, after a burst of requests earlier that night.
+
+    Skedda answers with a page about a potential security problem. Telling the
+    user their password is wrong sends them to change a password that works;
+    the attempt simply has to be made again later.
+    """
+    client = SkeddaClient(http, CREDS)
+    skedda.stub("GET", endpoints.LOGIN_PAGE.path, text=LOGIN_PAGE_HTML, headers=DATE)
+    skedda.stub(
+        "POST",
+        endpoints.LOGIN.path,
+        status=400,
+        json={
+            "errors": [
+                {
+                    "detail": "Sorry, but we struggled to do what you wanted because our "
+                    "super detectives found a potential security problem. This can happen "
+                    "if you've logged in/out on another tab or window."
+                }
+            ]
+        },
+    )
+
+    with pytest.raises(SignInBlockedError):
+        await client.authenticate()
+
+
+async def test_the_same_page_is_not_fetched_twice_in_one_breath(
+    http: aiohttp.ClientSession, skedda: FakeSkedda
+) -> None:
+    """Venue rules and courts arrive in one payload, and are read separately.
+
+    Every poll asked /webs for it twice. Against a service that never invited
+    us, half of every poll was a question we had just asked.
+    """
+    client = await authenticated(http, skedda)
+    skedda.stub("GET", endpoints.SPACES.path, json=WEBS, headers=DATE)
+
+    await client.venue_settings()
+    await client.list_spaces()
+
+    assert len(skedda.requests_for("GET", endpoints.SPACES.path)) == 1
+
+
+async def test_a_stale_page_is_fetched_again(
+    http: aiohttp.ClientSession, skedda: FakeSkedda
+) -> None:
+    """The cache is for one refresh, not for the day: courts do change."""
+    client = await authenticated(http, skedda)
+    skedda.stub("GET", endpoints.SPACES.path, json=WEBS, headers=DATE)
+
+    await client.venue_settings()
+    client._webs_fetched_at -= WEBS_CACHE_SECONDS + 1
+    await client.list_spaces()
+
+    assert len(skedda.requests_for("GET", endpoints.SPACES.path)) == 2
+
+
+async def test_signing_in_again_forgets_the_page(
+    http: aiohttp.ClientSession, skedda: FakeSkedda
+) -> None:
+    """A different account would otherwise be shown the last one's venue."""
+    client = await authenticated(http, skedda)
+    skedda.stub("GET", endpoints.SPACES.path, json=WEBS, headers=DATE)
+    await client.venue_settings()
+
+    stub_login(skedda)
+    await client.authenticate()
+    await client.venue_settings()
+
+    assert len(skedda.requests_for("GET", endpoints.SPACES.path)) == 2

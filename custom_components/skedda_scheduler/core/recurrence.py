@@ -18,6 +18,8 @@ from enum import StrEnum
 
 
 class Frequency(StrEnum):
+    #: A single date. The common case: most people want one court, once.
+    ONCE = "once"
     WEEKLY = "weekly"
     BIWEEKLY = "biweekly"
 
@@ -25,6 +27,10 @@ class Frequency(StrEnum):
 # Keyed by the enum member rather than its value: renaming a member should be a
 # type error, not a KeyError at the moment a booking window opens.
 _STEP_DAYS: dict[Frequency, int] = {
+    # A one-off never steps; the value is unused but must exist so that
+    # adding a frequency without deciding its step is a type error here
+    # rather than a KeyError the night a window opens.
+    Frequency.ONCE: 0,
     Frequency.WEEKLY: 7,
     Frequency.BIWEEKLY: 14,
 }
@@ -50,12 +56,23 @@ class RecurrenceRule:
             )
 
     @property
+    def repeats(self) -> bool:
+        return self.frequency is not Frequency.ONCE
+
+    @property
     def step(self) -> timedelta:
         return timedelta(days=_STEP_DAYS[self.frequency])
 
     @property
     def first_occurrence(self) -> date:
-        """The first matching date on or after the season start."""
+        """The first matching date on or after the season start.
+
+        A one-off is its season start exactly: the date was chosen from a
+        calendar, so shifting it to the nearest weekday would move the very
+        thing the user picked.
+        """
+        if not self.repeats:
+            return self.season_start
         shift = (self.weekday - self.season_start.weekday()) % 7
         return self.season_start + timedelta(days=shift)
 
@@ -66,6 +83,9 @@ class RecurrenceRule:
         forward one step at a time from the season start would give the same
         answer but costs a loop proportional to the age of the season.
         """
+        if not self.repeats:
+            first = self.first_occurrence
+            return [first] if first >= after else []
         step_days = _STEP_DAYS[self.frequency]
         current = self.first_occurrence
         if current < after:

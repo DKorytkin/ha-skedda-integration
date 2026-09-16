@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
+
+import pytest
 
 from custom_components.skedda_scheduler.core.provider import (
     Booking,
@@ -71,9 +73,36 @@ async def test_the_scheduler_could_drive_that_implementation() -> None:
     booking = await provider.book(
         BookingRequest(
             space_id="1",
-            start=datetime(2026, 9, 28, 8, 0),
-            end=datetime(2026, 9, 28, 9, 0),
+            start=datetime(2026, 9, 28, 8, 0, tzinfo=UTC),
+            end=datetime(2026, 9, 28, 9, 0, tzinfo=UTC),
             title="Tennis",
         )
     )
     assert booking.space_ids == ("1",)
+
+
+def test_a_booking_without_a_timezone_is_refused_at_the_boundary() -> None:
+    """Skedda writes a bare wall clock, so this is the mistake to make.
+
+    Observed live 2026-09-16: it surfaced three layers away as a calendar that
+    would not load and a duplicate-booking guard that never matched.
+    """
+    with pytest.raises(ValueError, match="timezone"):
+        Booking(
+            id="1",
+            space_ids=("1",),
+            start=datetime(2026, 9, 28, 8, 0),
+            end=datetime(2026, 9, 28, 9, 0, tzinfo=UTC),
+            title="Tennis",
+        )
+
+
+def test_a_request_without_a_timezone_is_refused_too() -> None:
+    """The transport strips the offset when it serialises; it cannot invent one."""
+    with pytest.raises(ValueError, match="timezone"):
+        BookingRequest(
+            space_id="1",
+            start=datetime(2026, 9, 28, 8, 0, tzinfo=UTC),
+            end=datetime(2026, 9, 28, 9, 0),
+            title="Tennis",
+        )

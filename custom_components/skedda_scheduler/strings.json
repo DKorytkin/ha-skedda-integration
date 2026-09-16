@@ -40,7 +40,8 @@
     "error": {
       "invalid_auth": "Skedda rejected the email or password.",
       "cannot_connect": "Could not reach the venue. Check the venue name and your connection.",
-      "unknown": "The venue answered in a way this integration did not expect. Check the logs."
+      "unknown": "The venue answered in a way this integration did not expect. Check the logs.",
+      "sign_in_blocked": "Skedda declined the sign-in attempt itself, not your password. This usually clears on its own; wait a few minutes and try again."
     },
     "abort": {
       "already_configured": "This account is already set up.",
@@ -53,55 +54,67 @@
     "job": {
       "title": "Booking job",
       "initiate_flow": {
-        "user": "Add a booking job",
+        "user": "Book a court",
         "reconfigure": "Edit the booking job"
       },
       "entry_type": "Booking job",
       "step": {
         "user": {
-          "title": "Add a booking job",
-          "description": "The job books the same slot every week. This venue opens bookings {horizon} days ahead and allows {quota} minutes per week.",
+          "title": "Book a court",
+          "description": "This venue opens bookings {horizon} days ahead and allows {quota} minutes per week.",
           "data": {
-            "name": "Job name",
             "space_id": "Court",
-            "weekday": "Day of week",
+            "start_date": "Date",
             "start_time": "Start time",
             "duration_minutes": "Duration",
-            "window_days": "Booking opens this many days before",
-            "frequency": "Repeat",
-            "season_start": "Season starts",
-            "season_end": "Season ends (optional)",
+            "frequency": "Repeat"
+          },
+          "data_description": {
+            "space_id": "Read from the venue. Free text here means the venue could not be reached.",
+            "start_date": "The date to book. This venue accepts bookings up to {horizon} days ahead.",
+            "duration_minutes": "The venue allows {quota} minutes per week.",
+            "frequency": "Book this once, or keep booking the same weekday."
+          }
+        },
+        "advanced": {
+          "title": "More options",
+          "description": "Everything else already has an answer; change what you need to.",
+          "data": {
+            "name": "Job name",
             "title": "Booking title shown in Skedda",
+            "season_end": "Repeat until (optional)",
+            "window_days": "Booking opens this many days before",
             "strategy": "Strategy",
             "notify_targets": "Notify these services with the result"
           },
           "data_description": {
-            "space_id": "Read from the venue. Free text here means the venue could not be reached.",
-            "duration_minutes": "The venue allows {quota} minutes per week.",
+            "season_end": "When the season ends and the court closes. Leave empty to keep going.",
             "window_days": "This venue opens bookings {horizon} days ahead. Match it exactly: earlier is refused, later is too late.",
             "strategy": "Precise fires the request the instant the window opens. Immediate fires once and retries."
           }
         },
         "reconfigure": {
           "title": "Edit the booking job",
-          "description": "The job books the same slot every week. This venue opens bookings {horizon} days ahead and allows {quota} minutes per week.",
+          "description": "This venue opens bookings {horizon} days ahead and allows {quota} minutes per week.",
           "data": {
-            "name": "Job name",
             "space_id": "Court",
-            "weekday": "Day of week",
+            "start_date": "Date",
             "start_time": "Start time",
             "duration_minutes": "Duration",
-            "window_days": "Booking opens this many days before",
             "frequency": "Repeat",
-            "season_start": "Season starts",
-            "season_end": "Season ends (optional)",
+            "name": "Job name",
             "title": "Booking title shown in Skedda",
+            "season_end": "Repeat until (optional)",
+            "window_days": "Booking opens this many days before",
             "strategy": "Strategy",
             "notify_targets": "Notify these services with the result"
           },
           "data_description": {
             "space_id": "Read from the venue. Free text here means the venue could not be reached.",
+            "start_date": "The date to book. This venue accepts bookings up to {horizon} days ahead.",
             "duration_minutes": "The venue allows {quota} minutes per week.",
+            "frequency": "Book this once, or keep booking the same weekday.",
+            "season_end": "When the season ends and the court closes. Leave empty to keep going.",
             "window_days": "This venue opens bookings {horizon} days ahead. Match it exactly: earlier is refused, later is too late.",
             "strategy": "Precise fires the request the instant the window opens. Immediate fires once and retries."
           }
@@ -123,6 +136,14 @@
       },
       "last_outcome": {
         "name": "Last outcome"
+      },
+      "status": {
+        "name": "Status",
+        "state": {
+          "armed": "Waiting for the window",
+          "disabled": "Turned off",
+          "out_of_season": "Out of season"
+        }
       }
     },
     "binary_sensor": {
@@ -138,6 +159,14 @@
     "button": {
       "run_now": {
         "name": "Run now"
+      }
+    },
+    "calendar": {
+      "bookings": {
+        "name": "Bookings"
+      },
+      "pending": {
+        "name": "Pending"
       }
     }
   },

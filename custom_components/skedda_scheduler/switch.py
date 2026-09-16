@@ -45,7 +45,7 @@ class JobEnabledSwitch(SkeddaJobEntity, SwitchEntity):
     def __init__(
         self, coordinator: SkeddaCoordinator, job: BookingJob, entry: SkeddaConfigEntry
     ) -> None:
-        super().__init__(coordinator, job, entry.runtime_data.account_device_id)
+        super().__init__(coordinator, job)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}:{job.job_id}:job_enabled"
 

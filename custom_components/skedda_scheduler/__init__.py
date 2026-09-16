@@ -7,22 +7,25 @@ from dataclasses import dataclass
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.typing import ConfigType
 
 from .api.client import SkeddaClient
 from .api.models import SkeddaCredentials
 from .const import CONF_VENUE, DOMAIN
 from .coordinator import SkeddaCoordinator
+from .panel import async_register_panel
 from .scheduler import JobScheduler
 from .services import async_setup_services
 from .skedda_provider import SkeddaProvider
 from .store import AttemptStore
+from .websocket import async_register as async_register_websocket
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
+    Platform.CALENDAR,
     Platform.BUTTON,
     Platform.SENSOR,
     Platform.SWITCH,
@@ -40,9 +43,6 @@ class SkeddaRuntimeData:
     #: bad anywhere, but at a venue with a weekly quota one job can burn the
     #: allowance the other needed.
     semaphore: asyncio.Semaphore
-    #: The account's device, so each job can hang off it by id. Registered
-    #: here rather than by whichever platform happens to set up first.
-    account_device_id: str
     #: Filled in once the runtime data exists, because the scheduler reads it.
     scheduler: JobScheduler | None = None
 
@@ -51,8 +51,9 @@ type SkeddaConfigEntry = ConfigEntry[SkeddaRuntimeData]
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Register the services once, whatever accounts exist."""
+    """Register the services and the panel's data source, once."""
     async_setup_services(hass)
+    async_register_websocket(hass)
     return True
 
 
@@ -68,9 +69,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bo
         email=entry.data[CONF_EMAIL],
         password=entry.data[CONF_PASSWORD],
     )
-    # Home Assistant's shared session: it is closed on shutdown for us, and
-    # reuses connections, which matters when a burst fires at a window opening.
-    client = SkeddaClient(async_get_clientsession(hass), credentials)
+    # Its own session, not Home Assistant's shared one: this integration needs
+    # a cookie jar of its own. Skedda refuses a sign-in made while an older
+    # session is still held, and a shared jar carries one across every reload.
+    # Created during entry setup, so Home Assistant detaches it when the entry
+    # is unloaded; closing it here would be closing it twice.
+    client = SkeddaClient(async_create_clientsession(hass), credentials)
     provider = SkeddaProvider(client)
     coordinator = SkeddaCoordinator(hass, entry, provider)
     # The first refresh is what proves the credentials: it turns a rejection
@@ -82,27 +86,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bo
     # Jobs deleted while this account was unloaded would otherwise keep their
     # history in the file for good; a re-added job gets a fresh id anyway.
     await store.async_forget(set(entry.subentries))
-    account_device = dr.async_get(hass).async_get_or_create(
-        config_entry_id=entry.entry_id,
-        identifiers={(DOMAIN, entry.entry_id)},
-        name=entry.title,
-        manufacturer="Skedda",
-        model="Account",
-        configuration_url=f"https://{entry.data[CONF_VENUE]}.skedda.com",
-    )
     entry.runtime_data = SkeddaRuntimeData(
         provider=provider,
         coordinator=coordinator,
         store=store,
         semaphore=asyncio.Semaphore(1),
-        account_device_id=account_device.id,
     )
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await async_register_panel(hass)
 
+    _async_forget_the_account_device(hass, entry)
+
+    # Before the platforms: an entity that asks the scheduler what a job is
+    # doing would otherwise be created while there is nothing to ask, and
+    # would report "out of season" until the next poll.
     scheduler = JobScheduler(hass, entry)
     entry.runtime_data.scheduler = scheduler
     scheduler.async_sync_jobs()
     entry.async_on_unload(scheduler.async_shutdown)
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 
@@ -118,3 +120,16 @@ async def async_reload_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> N
 async def async_remove_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> None:
     """Take the account's booking history with it."""
     await AttemptStore(hass, entry).async_remove()
+
+
+@callback
+def _async_forget_the_account_device(hass: HomeAssistant, entry: SkeddaConfigEntry) -> None:
+    """Remove the device an earlier version gave the account.
+
+    Home Assistant keeps a device an integration has stopped creating, so
+    without this the page lists a thing with no entities and no purpose.
+    """
+    registry = dr.async_get(hass)
+    stale = registry.async_get_device_by_identifier((DOMAIN, entry.entry_id), entry.entry_id)
+    if stale is not None:
+        registry.async_remove_device(stale.id)

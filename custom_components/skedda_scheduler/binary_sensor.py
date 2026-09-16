@@ -7,6 +7,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -35,7 +36,7 @@ class AccountAuthenticatedBinarySensor(SkeddaAccountEntity, BinarySensorEntity):
     entity_description = AUTHENTICATION
 
     def __init__(self, coordinator: SkeddaCoordinator) -> None:
-        super().__init__(coordinator)
+        super().__init__(coordinator, Platform.BINARY_SENSOR)
         self._attr_unique_id = f"{coordinator.config_entry.entry_id}:authentication"
 
     @property

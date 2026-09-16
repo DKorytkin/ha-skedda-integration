@@ -2,36 +2,46 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock
+from zoneinfo import ZoneInfo
 
+import pytest
 import voluptuous as vol
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import selector
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.skedda_scheduler.api.errors import SkeddaConnectionError
 from custom_components.skedda_scheduler.config_flow import SkeddaConfigFlow
 from custom_components.skedda_scheduler.const import (
     CONF_DURATION,
+    CONF_FREQUENCY,
+    CONF_NAME,
     CONF_SPACE_ID,
+    CONF_START_DATE,
+    CONF_TITLE,
     CONF_WINDOW_DAYS,
     SUBENTRY_TYPE_JOB,
 )
+from custom_components.skedda_scheduler.core.provider import Booking
 
+KYIV = ZoneInfo("Europe/Kyiv")
+
+#: 29 September 2026 is a Tuesday.
+#: The four answers only the person can give, plus whether to repeat.
 JOB_INPUT: dict[str, Any] = {
-    "name": "Tuesday 18:00",
     "space_id": "2000001",
-    "weekday": "1",
-    "start_time": "18:00:00",
+    "start_date": "2026-09-29",
+    "start_time": "20:00:00",
     "duration_minutes": 60,
-    "window_days": 14,
-    "frequency": "weekly",
-    "season_start": "2026-09-01",
-    "title": "Tennis (auto)",
-    "strategy": "precise",
+    "frequency": "once",
 }
+
+ESSENTIALS = JOB_INPUT
 
 
 async def setup_entry(hass: HomeAssistant, entry: MockConfigEntry) -> None:
@@ -47,7 +57,6 @@ async def start_job_flow(hass: HomeAssistant, entry: MockConfigEntry) -> dict[st
 
 
 def field(schema: vol.Schema, key: str) -> Any:
-    """The selector behind one form field."""
     for marker, value in schema.schema.items():
         if str(marker) == key:
             return value
@@ -64,13 +73,13 @@ def default_for(schema: vol.Schema, key: str) -> Any:
 async def test_the_job_subentry_type_is_advertised(
     hass: HomeAssistant, mock_entry: MockConfigEntry
 ) -> None:
-    supported = SkeddaConfigFlow.async_get_supported_subentry_types(mock_entry)
-    assert SUBENTRY_TYPE_JOB in supported
+    assert SUBENTRY_TYPE_JOB in SkeddaConfigFlow.async_get_supported_subentry_types(mock_entry)
 
 
-async def test_a_job_is_created_and_titled_with_its_name(
+async def test_four_answers_are_enough_to_book_a_court(
     hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
 ) -> None:
+    """Court, date, time, length. Everything else has a sensible answer."""
     await setup_entry(hass, mock_entry)
     result = await start_job_flow(hass, mock_entry)
     assert result["type"] is FlowResultType.FORM
@@ -78,58 +87,151 @@ async def test_a_job_is_created_and_titled_with_its_name(
     result = await hass.config_entries.subentries.async_configure(result["flow_id"], JOB_INPUT)
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["title"] == "Tuesday 18:00"
-    subentries = list(mock_entry.subentries.values())
-    assert len(subentries) == 1
-    assert subentries[0].data[CONF_SPACE_ID] == "2000001"
+    data = result["data"]
+    assert data[CONF_SPACE_ID] == "2000001"
+    assert data[CONF_FREQUENCY] == "once"
+    assert data[CONF_WINDOW_DAYS] == 14
+    assert data["strategy"] == "precise"
 
 
-async def test_the_courts_come_from_the_venue_rather_than_being_typed(
+async def test_the_job_names_itself_the_way_a_person_would_say_it(
     hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
 ) -> None:
-    """A mistyped space id books nothing, and says so only once it is too late."""
+    """Two fewer fields, and no booking ends up titled after a dashboard."""
     await setup_entry(hass, mock_entry)
     result = await start_job_flow(hass, mock_entry)
 
-    options = field(result["data_schema"], CONF_SPACE_ID).config["options"]
-    assert options == [
-        {"value": "2000001", "label": "Court 1"},
-        {"value": "2000002", "label": "Court 2"},
+    result = await hass.config_entries.subentries.async_configure(result["flow_id"], JOB_INPUT)
+
+    assert result["title"] == "Court 1 · 29.09 20:00"
+    assert result["data"][CONF_NAME] == "Court 1 · 29.09 20:00"
+    assert result["data"][CONF_TITLE] == "Court 1 · 29.09 20:00"
+
+
+async def test_a_repeating_job_names_itself_by_the_weekday(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Choosing to repeat opens the second step, which suggests the name."""
+    await setup_entry(hass, mock_entry)
+    result = await start_job_flow(hass, mock_entry)
+
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {**JOB_INPUT, CONF_FREQUENCY: "weekly"}
+    )
+
+    assert result["step_id"] == "advanced"
+    assert default_for(result["data_schema"], CONF_NAME) == "Court 1 · Tuesdays 20:00"
+
+
+async def test_the_form_asks_for_a_date_not_a_weekday(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """A calendar is how people think about booking a court."""
+    await setup_entry(hass, mock_entry)
+    result = await start_job_flow(hass, mock_entry)
+
+    assert isinstance(field(result["data_schema"], CONF_START_DATE), selector.DateSelector)
+    with pytest.raises(AssertionError):
+        field(result["data_schema"], "weekday")
+
+
+async def test_the_date_starts_at_the_far_edge_of_the_venue_s_horizon(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """The furthest slot is the one worth racing for; the nearer ones are gone."""
+    await setup_entry(hass, mock_entry)
+    result = await start_job_flow(hass, mock_entry)
+
+    expected = (dt_util.utcnow() + timedelta(days=14)).date().isoformat()
+    assert default_for(result["data_schema"], CONF_START_DATE) == expected
+
+
+async def test_the_duration_is_learned_from_what_you_already_book(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Your own history is the best answer the form can give."""
+    start = datetime(2026, 9, 1, 18, 0, tzinfo=KYIV)
+
+    def booked(identifier: str, minutes: int) -> Booking:
+        return Booking(
+            id=identifier,
+            space_ids=("2000001",),
+            start=start,
+            end=start + timedelta(minutes=minutes),
+            title="",
+        )
+
+    mock_provider.list_bookings.return_value = [
+        Booking(
+            id="1",
+            space_ids=("2000001",),
+            start=start,
+            end=start + timedelta(minutes=120),
+            title="",
+        ),
+        Booking(
+            id="2",
+            space_ids=("2000001",),
+            start=start,
+            end=start + timedelta(minutes=120),
+            title="",
+        ),
+        Booking(
+            id="3", space_ids=("2000001",), start=start, end=start + timedelta(minutes=60), title=""
+        ),
     ]
-
-
-async def test_the_window_default_is_the_venue_s_own_horizon(
-    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
-) -> None:
-    """The window has to match the venue exactly.
-
-    Fire earlier and the server refuses the booking; fire later and the slot
-    has already gone. Reading it from the venue is the only reliable source.
-    """
     await setup_entry(hass, mock_entry)
+
     result = await start_job_flow(hass, mock_entry)
-    assert default_for(result["data_schema"], CONF_WINDOW_DAYS) == 14
+
+    # 120 is the usual length, but the venue allows 60 minutes a week.
+    assert default_for(result["data_schema"], CONF_DURATION) == 60
 
 
-async def test_the_duration_steps_in_the_venue_s_own_slot_size(
+async def test_repeating_is_off_until_you_ask_for_it(
     hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
 ) -> None:
-    """The venue books in whole hours; offering 15 minutes offers a refusal."""
     await setup_entry(hass, mock_entry)
     result = await start_job_flow(hass, mock_entry)
 
-    config = field(result["data_schema"], CONF_DURATION).config
-    assert config["step"] == 60
-    assert config["min"] == 60
+    assert default_for(result["data_schema"], CONF_FREQUENCY) == "once"
+
+
+async def test_the_second_step_is_there_for_those_who_want_it(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    await setup_entry(hass, mock_entry)
+    result = await start_job_flow(hass, mock_entry)
+
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {**JOB_INPUT, CONF_FREQUENCY: "weekly"}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "advanced"
+
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        {
+            CONF_NAME: "Tennis with Oleh",
+            CONF_TITLE: "Tennis",
+            "season_end": "2026-11-30",
+            CONF_WINDOW_DAYS: 14,
+            "strategy": "immediate",
+        },
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == "Tennis with Oleh"
+    assert result["data"]["season_end"] == "2026-11-30"
+    assert result["data"]["strategy"] == "immediate"
+    # The essentials survive the second step.
+    assert result["data"][CONF_START_DATE] == "2026-09-29"
 
 
 async def test_a_duration_beyond_the_weekly_quota_is_refused_up_front(
     hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
 ) -> None:
-    """The venue allows 60 minutes a week; a 120-minute job can never succeed.
-
-    Letting it be saved would mean a job that fails silently every week.
-    """
+    """The venue allows 60 minutes a week; a 120-minute job can never succeed."""
     await setup_entry(hass, mock_entry)
     result = await start_job_flow(hass, mock_entry)
 
@@ -147,9 +249,13 @@ async def test_a_window_beyond_the_venue_s_horizon_is_refused_up_front(
 ) -> None:
     await setup_entry(hass, mock_entry)
     result = await start_job_flow(hass, mock_entry)
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {**JOB_INPUT, CONF_FREQUENCY: "weekly"}
+    )
 
     result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {**JOB_INPUT, CONF_WINDOW_DAYS: 30}
+        result["flow_id"],
+        {CONF_NAME: "x", CONF_TITLE: "x", CONF_WINDOW_DAYS: 30, "strategy": "precise"},
     )
 
     assert result["type"] is FlowResultType.FORM
@@ -166,16 +272,16 @@ async def test_a_venue_that_was_down_at_startup_still_lets_a_job_be_added(
     await hass.async_block_till_done()
 
     result = await start_job_flow(hass, mock_entry)
-    # A free-text id rather than a dropdown: there is no list to choose from.
     assert isinstance(field(result["data_schema"], CONF_SPACE_ID), selector.TextSelector)
 
     result = await hass.config_entries.subentries.async_configure(result["flow_id"], JOB_INPUT)
     assert result["type"] is FlowResultType.CREATE_ENTRY
 
 
-async def test_an_existing_job_can_be_edited_in_place(
+async def test_editing_a_job_shows_everything_at_once(
     hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
 ) -> None:
+    """A job that already exists must not be harder to change than to create."""
     await setup_entry(hass, mock_entry)
     result = await start_job_flow(hass, mock_entry)
     await hass.config_entries.subentries.async_configure(result["flow_id"], JOB_INPUT)
@@ -185,24 +291,30 @@ async def test_an_existing_job_can_be_edited_in_place(
         (mock_entry.entry_id, SUBENTRY_TYPE_JOB),
         context={"source": "reconfigure", "subentry_id": subentry_id},
     )
-    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+    assert field(result["data_schema"], CONF_NAME) is not None
 
     result = await hass.config_entries.subentries.async_configure(
         result["flow_id"],
-        {**JOB_INPUT, "name": "Tuesday 19:00", "start_time": "19:00:00"},
+        {
+            **ESSENTIALS,
+            CONF_NAME: "Renamed",
+            CONF_TITLE: "Tennis",
+            CONF_WINDOW_DAYS: 14,
+            "strategy": "precise",
+            "start_time": "19:00:00",
+        },
     )
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
-    updated = mock_entry.subentries[subentry_id]
-    assert updated.title == "Tuesday 19:00"
-    assert updated.data["start_time"] == "19:00:00"
+    assert mock_entry.subentries[subentry_id].title == "Renamed"
+    assert mock_entry.subentries[subentry_id].data["start_time"] == "19:00:00"
 
 
 async def test_editing_a_job_is_held_to_the_same_venue_rules(
     hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
 ) -> None:
-    """Otherwise an impossible job could be edited into existence."""
     await setup_entry(hass, mock_entry)
     result = await start_job_flow(hass, mock_entry)
     await hass.config_entries.subentries.async_configure(result["flow_id"], JOB_INPUT)
@@ -213,12 +325,11 @@ async def test_editing_a_job_is_held_to_the_same_venue_rules(
         context={"source": "reconfigure", "subentry_id": subentry_id},
     )
     result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {**JOB_INPUT, CONF_DURATION: 120}
+        result["flow_id"],
+        {**ESSENTIALS, CONF_DURATION: 120, CONF_NAME: "x", CONF_TITLE: "x", CONF_WINDOW_DAYS: 14},
     )
 
-    assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {CONF_DURATION: "over_quota"}
-    assert mock_entry.subentries[subentry_id].data[CONF_DURATION] == 60
 
 
 async def test_a_job_can_be_added_before_the_account_has_ever_loaded(
@@ -228,10 +339,43 @@ async def test_a_job_can_be_added_before_the_account_has_ever_loaded(
     mock_entry.add_to_hass(hass)
 
     result = await start_job_flow(hass, mock_entry)
-    assert result["description_placeholders"] == {
-        "quota": "unlimited",
-        "horizon": "unlimited",
-    }
+    assert result["description_placeholders"] == {"quota": "unlimited", "horizon": "unlimited"}
 
     result = await hass.config_entries.subentries.async_configure(result["flow_id"], JOB_INPUT)
     assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_the_repeat_choice_is_once_or_weekly(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Every option is something to read past; fortnightly nobody asked for."""
+    await setup_entry(hass, mock_entry)
+    result = await start_job_flow(hass, mock_entry)
+
+    options = field(result["data_schema"], CONF_FREQUENCY).config["options"]
+    assert [option["value"] for option in options] == ["once", "weekly"]
+
+
+async def test_a_one_off_is_finished_in_one_screen(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Nothing is left to decide: a single date has no season, and the name,
+    window and strategy all follow from the four answers already given."""
+    await setup_entry(hass, mock_entry)
+    result = await start_job_flow(hass, mock_entry)
+
+    result = await hass.config_entries.subentries.async_configure(result["flow_id"], JOB_INPUT)
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_the_form_has_no_control_that_does_nothing(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """A toggle named "more options" showed nothing until Submit was pressed,
+    which read as a control that did not work."""
+    await setup_entry(hass, mock_entry)
+    result = await start_job_flow(hass, mock_entry)
+
+    with pytest.raises(AssertionError):
+        field(result["data_schema"], "advanced")

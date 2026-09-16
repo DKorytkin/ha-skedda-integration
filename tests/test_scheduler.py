@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from unittest.mock import AsyncMock, patch
@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from homeassistant.config_entries import ConfigSubentry
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.skedda_scheduler.api.errors import (
@@ -29,14 +30,17 @@ from custom_components.skedda_scheduler.const import (
     MAX_ATTEMPTS_PER_RUN,
     SUBENTRY_TYPE_JOB,
 )
+from custom_components.skedda_scheduler.coordinator import IDLE_INTERVAL, UPDATE_INTERVAL
 from custom_components.skedda_scheduler.core.job import BookingJob
 from custom_components.skedda_scheduler.core.provider import Booking
 from custom_components.skedda_scheduler.core.recurrence import Frequency, RecurrenceRule
 from custom_components.skedda_scheduler.core.result import AttemptStatus
 from custom_components.skedda_scheduler.core.window import BookingWindow
 from custom_components.skedda_scheduler.scheduler import (
+    CATCH_UP_DELAY,
     RATE_LIMIT_BACKOFF_SECONDS,
     JobRunner,
+    JobScheduler,
 )
 from custom_components.skedda_scheduler.store import AttemptStore
 
@@ -62,16 +66,25 @@ BOOKING = Booking(
 
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
 
+#: What the short form collects.
 JOB_INPUT = {
-    "name": "Tuesday 18:00",
     "space_id": "2000001",
-    "weekday": "1",
+    "start_date": "2026-09-01",
     "start_time": "18:00:00",
     "duration_minutes": 60,
-    "window_days": 14,
     "frequency": "weekly",
-    "season_start": "2026-09-01",
-    "title": "Tennis (auto)",
+}
+
+#: What the flow stores once its defaults are filled in.
+STORED_JOB = {
+    "space_id": "2000001",
+    "start_date": "2026-09-01",
+    "start_time": "18:00:00",
+    "duration_minutes": 60,
+    "frequency": "weekly",
+    "name": "Court 1 · Tuesdays 18:00",
+    "title": "Court 1 · Tuesdays 18:00",
+    "window_days": 14,
     "strategy": "precise",
 }
 
@@ -85,13 +98,13 @@ def no_sleep() -> Iterator[None]:
 @pytest.fixture
 async def runner(
     hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
-) -> JobRunner:
+) -> AsyncIterator[JobRunner]:
     mock_entry.add_to_hass(hass)
     await hass.config_entries.async_setup(mock_entry.entry_id)
     await hass.async_block_till_done()
     store = AttemptStore(hass, mock_entry)
     await store.async_load()
-    return JobRunner(
+    runner = JobRunner(
         hass=hass,
         entry=mock_entry,
         provider=mock_provider,
@@ -100,6 +113,10 @@ async def runner(
         store=store,
         semaphore=asyncio.Semaphore(1),
     )
+    yield runner
+    # An armed job outlives the test otherwise, and Home Assistant's test
+    # harness fails the run for the lingering timer.
+    runner.async_cancel()
 
 
 async def test_a_first_shot_that_lands_stops_the_burst(
@@ -281,7 +298,8 @@ async def test_an_already_open_window_arms_immediately_rather_than_waiting(
     with patch("custom_components.skedda_scheduler.scheduler.dt_util.utcnow", return_value=NOW):
         runner.async_schedule()
 
-    assert runner.armed_for == NOW
+    assert runner.armed_for is not None
+    assert NOW < runner.armed_for <= NOW + CATCH_UP_DELAY
     runner.async_cancel()
     assert runner.armed_for is None
 
@@ -329,7 +347,17 @@ async def test_every_job_subentry_gets_an_armed_runner(
     result = await hass.config_entries.subentries.async_init(
         (mock_entry.entry_id, SUBENTRY_TYPE_JOB), context={"source": "user"}
     )
-    await hass.config_entries.subentries.async_configure(result["flow_id"], JOB_INPUT)
+    # Repeating, so the flow asks about the season before it finishes.
+    result = await hass.config_entries.subentries.async_configure(result["flow_id"], JOB_INPUT)
+    await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        {
+            "name": "Tuesdays",
+            "title": "Tennis",
+            "window_days": 14,
+            "strategy": "precise",
+        },
+    )
     await hass.async_block_till_done()
 
     scheduler = mock_entry.runtime_data.scheduler
@@ -349,7 +377,7 @@ async def test_a_job_stored_in_a_shape_we_cannot_build_is_skipped_not_fatal(
     future config version can.
     """
     mock_entry.add_to_hass(hass)
-    for index, data in enumerate(({**JOB_INPUT, "season_start": "not-a-date"}, JOB_INPUT)):
+    for index, data in enumerate(({**STORED_JOB, "start_date": "not-a-date"}, STORED_JOB)):
         hass.config_entries.async_add_subentry(
             mock_entry,
             ConfigSubentry(
@@ -402,7 +430,7 @@ async def test_running_a_known_job_now_goes_through_the_scheduler(
     hass.config_entries.async_add_subentry(
         mock_entry,
         ConfigSubentry(
-            data=JOB_INPUT,
+            data=STORED_JOB,
             subentry_id="sub-1",
             subentry_type=SUBENTRY_TYPE_JOB,
             title="Tuesday 18:00",
@@ -505,3 +533,191 @@ async def test_arming_a_job_whose_season_ends_before_it_fires_does_nothing(
     await runner._async_armed(NOW)
 
     assert mock_provider.book.await_count == 0
+
+
+async def test_a_finished_run_does_not_re_arm_for_the_slot_it_just_tried(
+    runner: JobRunner, mock_provider: AsyncMock, no_sleep: None
+) -> None:
+    """Observed live 2026-09-15: the job re-fired several times a second.
+
+    An open window stays open, so re-arming for the same slot after a run
+    schedules a wake-up that is already due, which runs and re-arms again. The
+    loop hammered the venue until the integration was pulled off the machine.
+    """
+    with patch("custom_components.skedda_scheduler.scheduler.dt_util.utcnow", return_value=NOW):
+        first_slot, _ = JOB.next_slot(NOW)
+        await runner._async_armed(NOW)
+
+        assert runner.attempted_slot == first_slot
+        assert runner.armed_for is not None
+        assert runner.armed_for > NOW
+        # Whatever it arms for next, it is not the slot just tried.
+        assert runner._next_untried_slot(NOW) > first_slot
+
+
+async def test_a_job_with_one_slot_stops_after_trying_it(
+    runner: JobRunner, mock_provider: AsyncMock, no_sleep: None
+) -> None:
+    """A season of one date must not retry that date for ever."""
+    runner.job = replace(JOB, recurrence=replace(JOB.recurrence, season_end=date(2026, 9, 8)))
+
+    with patch("custom_components.skedda_scheduler.scheduler.dt_util.utcnow", return_value=NOW):
+        await runner._async_armed(NOW)
+
+    assert runner.armed_for is None
+
+
+async def test_arming_never_schedules_a_moment_that_is_already_past(
+    runner: JobRunner, mock_provider: AsyncMock
+) -> None:
+    """The guard of last resort.
+
+    Home Assistant runs a wake-up that is already due immediately, so a past
+    arming time is not a late alarm - it is a loop.
+    """
+    runner.attempted_slot = None
+
+    runner.async_schedule()
+    armed = runner.armed_for
+    runner.async_cancel()
+
+    assert armed is not None
+    assert armed > dt_util.utcnow()
+
+
+async def test_the_scheduler_tells_the_coordinator_when_the_next_booking_is(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """The scheduler is the only thing that knows when this account is busy.
+
+    Without that the coordinator would either poll all year for nothing or
+    sleep through the hour that matters.
+    """
+    mock_entry.add_to_hass(hass)
+    hass.config_entries.async_add_subentry(
+        mock_entry,
+        ConfigSubentry(
+            data=STORED_JOB,
+            subentry_id="sub-1",
+            subentry_type=SUBENTRY_TYPE_JOB,
+            title="Tuesdays",
+            unique_id=None,
+        ),
+    )
+    await hass.config_entries.async_setup(mock_entry.entry_id)
+    await hass.async_block_till_done()
+
+    coordinator = mock_entry.runtime_data.coordinator
+    runner = mock_entry.runtime_data.scheduler.runner_for("sub-1")
+
+    assert runner.armed_for is not None
+    assert coordinator.update_interval == UPDATE_INTERVAL
+
+
+async def test_removing_every_job_lets_the_account_go_quiet(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    mock_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(mock_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert mock_entry.runtime_data.coordinator.update_interval == IDLE_INTERVAL
+
+
+async def test_publishing_the_next_arming_survives_an_account_that_never_loaded(
+    hass: HomeAssistant, mock_entry: MockConfigEntry
+) -> None:
+    """Unloading tears down runtime data, and shutdown announces afterwards."""
+    mock_entry.add_to_hass(hass)
+    scheduler = JobScheduler(hass, mock_entry)
+
+    scheduler.async_shutdown()
+
+    assert scheduler.runners == {}
+
+
+async def test_a_job_catches_up_on_one_slot_and_then_waits(
+    runner: JobRunner, mock_provider: AsyncMock, no_sleep: None
+) -> None:
+    """Reported 2026-09-16: a phone buzzing with quota_exceeded.
+
+    A weekly job whose windows are all open would otherwise fire at every one
+    of them in turn, and at a venue allowing an hour a week every shot after
+    the first is refused. One catch-up, then back to precise timing.
+    """
+    with patch("custom_components.skedda_scheduler.scheduler.dt_util.utcnow", return_value=NOW):
+        runner.async_schedule()
+        caught_up = runner.armed_for
+        await runner._async_armed(NOW)
+        after = runner.armed_for
+        runner.async_cancel()
+
+    assert caught_up == NOW + CATCH_UP_DELAY, "the open window is taken at once"
+    assert after is not None
+    # Not another due-now wake-up: the next arming waits for a window that has
+    # not opened yet.
+    assert after > NOW + timedelta(days=1)
+
+
+async def test_a_restart_may_catch_up_again(runner: JobRunner, mock_provider: AsyncMock) -> None:
+    """Catching up is per run, not per slot: a fresh runner tries once more.
+
+    Home Assistant restarting is the case this exists for - the window may
+    have opened while it was down.
+    """
+    with patch("custom_components.skedda_scheduler.scheduler.dt_util.utcnow", return_value=NOW):
+        runner.async_schedule()
+        armed = runner.armed_for
+        runner.async_cancel()
+
+    assert armed == NOW + CATCH_UP_DELAY
+
+
+async def test_a_season_that_ends_inside_the_horizon_stops_rather_than_spins(
+    runner: JobRunner, mock_provider: AsyncMock, no_sleep: None
+) -> None:
+    """Every remaining window is open and there is no later one to wait for."""
+    runner.job = replace(JOB, recurrence=replace(JOB.recurrence, season_end=date(2026, 9, 15)))
+
+    with patch("custom_components.skedda_scheduler.scheduler.dt_util.utcnow", return_value=NOW):
+        await runner._async_armed(NOW)
+
+    assert runner.armed_for is None
+
+
+async def test_the_catch_up_search_gives_up_rather_than_walking_for_ever(
+    runner: JobRunner, mock_provider: AsyncMock
+) -> None:
+    """A rule yielding dates endlessly must not hold the event loop."""
+    far_future = NOW + timedelta(days=3650)
+    runner.job = replace(JOB, window=BookingWindow(window_days=4000))
+
+    with patch(
+        "custom_components.skedda_scheduler.scheduler.dt_util.utcnow",
+        return_value=far_future,
+    ):
+        assert runner._next_unopened_slot(far_future) is None
+
+
+async def test_only_a_booking_that_landed_costs_an_extra_poll(
+    runner: JobRunner, mock_provider: AsyncMock, no_sleep: None
+) -> None:
+    """A refresh after every run is two more requests for no new information.
+
+    The venue's diary only changes when we change it.
+    """
+    coordinator = runner.entry.runtime_data.coordinator
+    mock_provider.book.side_effect = SlotTakenError("gone")
+    mock_provider.list_bookings.reset_mock()
+
+    await runner.async_run_now()
+    await runner.hass.async_block_till_done()
+    after_failure = mock_provider.list_bookings.await_count
+
+    mock_provider.book.side_effect = None
+    await runner.async_run_now()
+    await runner.hass.async_block_till_done()
+
+    assert after_failure == 0
+    assert mock_provider.list_bookings.await_count > 0
+    assert coordinator.last_update_success

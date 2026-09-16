@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Sequence
-from datetime import datetime
+from collections.abc import Callable, Sequence
+from datetime import datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
@@ -64,6 +64,16 @@ _ERROR_STATUS: tuple[tuple[type[SkeddaError], AttemptStatus], ...] = (
 #: genuinely transient; this is the back-off that makes the retry defensible.
 RATE_LIMIT_BACKOFF_SECONDS = 2.0
 
+#: How many occurrences to walk past when looking for a window that has not
+#: opened yet. A season is finite and the horizon is short; this is a guard
+#: against a rule that somehow yields dates for ever.
+_CATCH_UP_SEARCH_LIMIT = 12
+
+#: How soon a job may fire when its window is already open. Not zero: Home
+#: Assistant's time tracker runs a wake-up that is already due immediately, so
+#: a zero delay turns "catch up on an open window" into a hot loop.
+CATCH_UP_DELAY = timedelta(seconds=1)
+
 #: Recorded when a run ends without firing: no slot left in the season, or the
 #: slot is already ours.
 REASON_ALREADY_BOOKED = "already_booked"
@@ -88,6 +98,7 @@ class JobRunner:
         sinks: Sequence[ResultSink],
         store: AttemptStore,
         semaphore: asyncio.Semaphore,
+        on_schedule: Callable[[], None] | None = None,
     ) -> None:
         self.hass = hass
         self.entry = entry
@@ -96,7 +107,14 @@ class JobRunner:
         self.sinks = list(sinks)
         self.store = store
         self.semaphore = semaphore
+        self._on_schedule = on_schedule
         self.armed_for: datetime | None = None
+        #: The slot this arming is aimed at. Not always the nearest one: after
+        #: catching up, the runner moves to the first window that has yet to
+        #: open, and anything describing the job has to say the same.
+        self.armed_slot: datetime | None = None
+        #: The slot the last run fired at, so the next arming moves past it.
+        self.attempted_slot: datetime | None = None
         self._unsub: CALLBACK_TYPE | None = None
 
     @property
@@ -106,29 +124,73 @@ class JobRunner:
 
     @callback
     def async_schedule(self) -> None:
-        """Arm for the next window.
+        """Arm for the next slot this job has not already tried.
 
         A window that opened while Home Assistant was down is still open - the
         horizon is rolling, and a slot stays bookable right up until it starts.
-        Waiting for the next one would concede exactly the slot this integration
-        exists to win, so the runner arms for now instead.
+        Waiting for the next window would concede exactly the slot this
+        integration exists to win, so the runner arms for now instead.
+
+        The slot just attempted is skipped, and that is not a refinement: an
+        open window plus a re-arm for the same slot is a wake-up that is
+        already due, which runs, re-arms, and runs again. Observed live on
+        2026-09-15 firing several times a second.
         """
         self.async_cancel()
         if not self.job.enabled:
             return
 
         now = dt_util.utcnow()
-        opens_at = self.job.next_window_open(now)
-        if opens_at is None:
-            _LOGGER.debug("Job %s has no future slot; season is over", self.job.job_id)
+        slot = self._next_untried_slot(now)
+        if slot is None:
+            _LOGGER.debug("Job %s has no slot left to try", self.job.job_id)
             return
 
+        opens_at = self.job.window.opens_at(slot)
+        if self.attempted_slot is not None and opens_at <= now:
+            # One catch-up per run of Home Assistant, not one per open window.
+            # A weekly job at a venue allowing an hour a week has several open
+            # windows at once, and firing at all of them means one booking and
+            # a run of refusals - each of which reaches the user's phone.
+            slot_and_window = self._next_unopened_slot(now)
+            if slot_and_window is None:
+                _LOGGER.debug("Job %s has caught up; nothing opens later", self.job.job_id)
+                return
+            slot, opens_at = slot_and_window
         arm_at = build_strategy(self.job.strategy).plan(opens_at).arm_at
-        self.armed_for = max(arm_at, now)
+        # Never in the past: a due wake-up fires immediately, and a run that
+        # arms one loops however it came about.
+        self.armed_for = max(arm_at, now + CATCH_UP_DELAY)
+        self.armed_slot = slot
         self._unsub = async_track_point_in_utc_time(self.hass, self._async_armed, self.armed_for)
+        self._announce()
         _LOGGER.debug(
-            "Job %s armed for %s (window opens %s)", self.job.job_id, self.armed_for, opens_at
+            "Job %s armed for %s (slot %s, window opens %s)",
+            self.job.job_id,
+            self.armed_for,
+            slot,
+            opens_at,
         )
+
+    def _next_unopened_slot(self, now: datetime) -> tuple[datetime, datetime] | None:
+        """The first slot whose window has not opened yet, with that instant."""
+        probe = now
+        for _ in range(_CATCH_UP_SEARCH_LIMIT):
+            slot = self.job.next_slot(probe)
+            if slot is None:
+                return None
+            opens_at = self.job.window.opens_at(slot[0])
+            if opens_at > now:
+                return slot[0], opens_at
+            probe = slot[0]
+        return None
+
+    def _next_untried_slot(self, now: datetime) -> datetime | None:
+        """The start of the next slot worth arming for."""
+        slot = self.job.next_slot(now)
+        if slot is not None and slot[0] == self.attempted_slot:
+            slot = self.job.next_slot(slot[0])
+        return slot[0] if slot is not None else None
 
     @callback
     def async_cancel(self) -> None:
@@ -136,6 +198,14 @@ class JobRunner:
             self._unsub()
             self._unsub = None
         self.armed_for = None
+        self.armed_slot = None
+        self._announce()
+
+    @callback
+    def _announce(self) -> None:
+        """Tell whoever cares that this job's next attempt time changed."""
+        if self._on_schedule is not None:
+            self._on_schedule()
 
     async def async_run_now(self) -> BookingOutcome:
         """Run the job immediately, as the service and the button do."""
@@ -173,6 +243,9 @@ class JobRunner:
         if slot is None:
             return await self._async_no_op(opens_at, opens_at, reason=None)
         slot_start, slot_end = slot
+        # Remember it before anything can fail: a run that crashed half way
+        # must still not be repeated in a tight loop.
+        self.attempted_slot = slot_start
         if self._already_booked(slot_start):
             _LOGGER.debug("Job %s already holds %s", self.job.job_id, slot_start)
             return await self._async_no_op(slot_start, slot_end, reason=REASON_ALREADY_BOOKED)
@@ -288,23 +361,26 @@ class JobRunner:
 
     async def _async_finish(self, outcome: BookingOutcome) -> None:
         await self.store.async_record(outcome)
-        self._async_notify_entities()
+        self._async_notify_entities(refresh=outcome.succeeded)
         await async_dispatch(self.sinks, outcome, self.job)
 
     @callback
-    def _async_notify_entities(self) -> None:
-        """Push the new outcome to the entities, then catch the data up.
+    def _async_notify_entities(self, *, refresh: bool) -> None:
+        """Push the new outcome to the entities, and only then ask the venue.
 
-        The history lives in the store, which nothing polls, so without this
-        the job's sensor would keep reporting the previous run until the next
-        quarter-hourly poll. The refresh is for the booking we just made.
+        The history lives in the store, which nothing polls, so without the
+        first part the job's sensor would report the previous run until the
+        next poll. The second part is for the booking we just made - a run
+        that booked nothing changed nothing at the venue, and asking anyway is
+        two requests for no new information.
         """
         try:
             coordinator = self.entry.runtime_data.coordinator
         except AttributeError:
             return
         coordinator.async_update_listeners()
-        self.hass.async_create_task(coordinator.async_request_refresh())
+        if refresh:
+            self.hass.async_create_task(coordinator.async_request_refresh())
 
     async def _async_sleep_until(self, server_instant: datetime) -> None:
         """Sleep until our clock reads the moment Skedda's clock reads this.
@@ -360,15 +436,33 @@ class JobScheduler:
                 sinks=sinks,
                 store=runtime.store,
                 semaphore=runtime.semaphore,
+                on_schedule=self._async_publish_next_arming,
             )
             self._runners[subentry_id] = runner
             runner.async_schedule()
+        self._async_publish_next_arming()
 
     @callback
     def async_shutdown(self) -> None:
         for runner in self._runners.values():
             runner.async_cancel()
         self._runners.clear()
+        self._async_publish_next_arming()
+
+    @callback
+    def _async_publish_next_arming(self) -> None:
+        """Let the coordinator match its poll rate to the nearest booking.
+
+        Nothing else knows when this account is busy: out of season there is
+        no reason to ask the venue anything, and in the hour before a window
+        there is every reason.
+        """
+        try:
+            coordinator = self.entry.runtime_data.coordinator
+        except AttributeError:
+            return
+        armed = [runner.armed_for for runner in self._runners.values() if runner.armed_for]
+        coordinator.async_note_next_arming(min(armed) if armed else None)
 
     async def async_run_now(self, job_id: str) -> BookingOutcome | None:
         runner = self._runners.get(job_id)

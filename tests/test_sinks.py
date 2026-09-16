@@ -156,6 +156,44 @@ async def test_a_malformed_notify_target_is_skipped(
     assert len(notify_calls) == 1
 
 
+async def test_a_notify_entity_is_sent_to_rather_than_called_as_a_service(
+    hass: HomeAssistant,
+) -> None:
+    """Observed live 2026-09-15: every notification failed.
+
+    Modern notify targets are entities, and the job form offers entities. They
+    are reached with notify.send_message and an entity_id; calling
+    notify.<entity> as a service finds nothing and the user hears nothing.
+    """
+    sent: list[ServiceCall] = []
+
+    async def record(call: ServiceCall) -> None:
+        sent.append(call)
+
+    hass.services.async_register("notify", "send_message", record)
+    hass.states.async_set("notify.iphone", "unknown")
+
+    await NotifySink(hass).async_handle(
+        outcome(succeeded=True), replace(JOB, notify_targets=("notify.iphone",))
+    )
+    await hass.async_block_till_done()
+
+    assert len(sent) == 1
+    assert sent[0].data["entity_id"] == "notify.iphone"
+    assert "Tuesday 18:00" in sent[0].data["message"]
+
+
+async def test_a_legacy_notify_service_still_works(
+    hass: HomeAssistant, notify_calls: list[ServiceCall]
+) -> None:
+    """Older installations name a service, not an entity; both must reach the user."""
+    await NotifySink(hass).async_handle(outcome(succeeded=True), JOB)
+    await hass.async_block_till_done()
+
+    assert len(notify_calls) == 1
+    assert "entity_id" not in notify_calls[0].data
+
+
 async def test_dispatch_continues_after_a_failing_sink(hass: HomeAssistant) -> None:
     broken = AsyncMock()
     broken.async_handle.side_effect = RuntimeError("boom")
@@ -171,3 +209,48 @@ async def test_the_default_sinks_are_the_event_bus_and_notifications(
 ) -> None:
     sinks = build_default_sinks(hass)
     assert [type(sink) for sink in sinks] == [HaEventSink, NotifySink]
+
+
+async def test_a_run_that_sent_nothing_sends_no_notification(
+    hass: HomeAssistant, notify_calls: list[ServiceCall]
+) -> None:
+    """A job whose slot is already ours fires nothing and is not news.
+
+    Reported 2026-09-16: a phone buzzing constantly. Every arming of an
+    already-booked job ended in a run with no attempts, and every one of those
+    was announced.
+    """
+    nothing_happened = replace(
+        outcome(succeeded=False), attempts=(), no_attempt_reason="already_booked"
+    )
+
+    await NotifySink(hass).async_handle(nothing_happened, JOB)
+    await hass.async_block_till_done()
+
+    assert notify_calls == []
+
+
+async def test_a_real_attempt_is_always_announced(
+    hass: HomeAssistant, notify_calls: list[ServiceCall]
+) -> None:
+    """Both outcomes matter: one is the court, the other is why not."""
+    for result in (True, False):
+        await NotifySink(hass).async_handle(outcome(succeeded=result), JOB)
+    await hass.async_block_till_done()
+
+    assert len(notify_calls) == 2
+
+
+async def test_the_event_bus_still_hears_about_every_run(
+    hass: HomeAssistant,
+) -> None:
+    """Events are the automation surface and cost nobody's attention."""
+    events = async_capture_events(hass, EVENT_BOOKING_FAILED)
+    nothing_happened = replace(
+        outcome(succeeded=False), attempts=(), no_attempt_reason="already_booked"
+    )
+
+    await HaEventSink(hass).async_handle(nothing_happened, JOB)
+    await hass.async_block_till_done()
+
+    assert len(events) == 1

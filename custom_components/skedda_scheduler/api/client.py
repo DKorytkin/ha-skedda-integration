@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -25,6 +26,7 @@ from .clock import ClockSync, parse_date_header
 from .errors import (
     ApiContractError,
     AuthExpiredError,
+    SignInBlockedError,
     SkeddaAuthError,
     SkeddaConnectionError,
 )
@@ -50,6 +52,16 @@ _TOKEN_INPUT = re.compile(rf'name="{endpoints.ANTIFORGERY_INPUT}"[^>]*\bvalue="(
 # violation - see the contract doc, "422 is not only a booking-rule status".
 _READ_PATHS = frozenset({endpoints.SPACES.path, endpoints.BOOKINGS_LIST.path})
 
+#: Skedda's own words when it declines to process a sign-in at all. Matching
+#: prose is unpleasant, but the alternative is reporting a working password as
+#: wrong, and this response carries nothing else to go on.
+_SECURITY_REFUSAL = "potential security problem"
+
+#: How long one fetch of /webs stands in for the next. The venue's rules,
+#: courts and our own ids all arrive in that one payload and are read
+#: separately, so without this every poll asked for the same page twice.
+WEBS_CACHE_SECONDS = 30.0
+
 
 class SkeddaClient:
     """One authenticated conversation with one Skedda venue."""
@@ -59,6 +71,12 @@ class SkeddaClient:
         self._credentials = credentials
         self._session: SkeddaSession | None = None
         self._identity: SkeddaIdentity | None = None
+        #: The venue host issues its own antiforgery token; the sign-in host's
+        #: is not accepted there. Cached for the session: fetching a page
+        #: before every request would double the cost of a burst.
+        self._venue_token: str | None = None
+        self._webs: dict[str, Any] | None = None
+        self._webs_fetched_at = 0.0
         self.clock = ClockSync()
 
     @property
@@ -75,6 +93,15 @@ class SkeddaClient:
         The token is scraped from the login page before the credentials are
         posted: Skedda issues it with the page, not with a successful login.
         """
+        # Skedda refuses a sign-in attempted while an old session is still
+        # held - "our super detectives found a potential security problem".
+        # A reloaded entry builds a new client over the same cookie jar, so
+        # whatever the last one left behind has to go first.
+        self._http.cookie_jar.clear()
+        self._session = None
+        self._identity = None
+        self._venue_token = None
+        self._webs = None
         token = await self._fetch_antiforgery_token(
             endpoints.LOGIN_HOST + endpoints.LOGIN_PAGE.path
         )
@@ -90,9 +117,22 @@ class SkeddaClient:
             raise SkeddaAuthError("Skedda rejected the credentials")
         failure = endpoints.classify_error(status, body)
         if failure is not None:
-            raise failure(endpoints.error_detail(body) or f"login failed with status {status}")
-        # A different account may be signing in; stale ids would misbook.
-        self._identity = None
+            self._session = None
+            detail = endpoints.error_detail(body) or f"login failed with status {status}"
+            if failure is ApiContractError and _SECURITY_REFUSAL in detail.lower():
+                # Not the credentials: Skedda declined to process the attempt.
+                # Asking for a new password would send the user to change one
+                # that works.
+                raise SignInBlockedError(detail)
+            if failure is ApiContractError:
+                # Captured live 2026-09-15: a wrong password comes back as 422
+                # carrying the same error envelope as a booking-rule violation.
+                # A sign-in request cannot violate a booking rule, so the only
+                # thing an unrecognised rejection here can mean is that the
+                # credentials were not accepted - and telling the user their
+                # API changed would send them hunting for someone else's bug.
+                raise SkeddaAuthError(detail)
+            raise failure(detail)
         self._session = SkeddaSession(
             # The auth cookie is HttpOnly and handled by aiohttp's jar; this
             # mapping exists for diagnostics, not for sending.
@@ -117,7 +157,7 @@ class SkeddaClient:
         status, body, headers = await self._send(
             endpoint,
             host=endpoints.base_url(self._credentials.venue),
-            token=self._session.antiforgery_token,
+            token=await self._venue_antiforgery_token(),
             params=params,
             json_body=json_body,
         )
@@ -132,7 +172,7 @@ class SkeddaClient:
 
     async def list_spaces(self) -> list[SkeddaSpace]:
         """Return the venue's bookable spaces. Skedda calls these "assets"."""
-        payload = await self._webs()
+        payload = await self._fetch_webs()
         assets = payload.get("assets")
         if not isinstance(assets, list):
             raise ApiContractError(f"/webs carried no 'assets' list; keys {sorted(payload)}")
@@ -140,7 +180,7 @@ class SkeddaClient:
 
     async def venue_settings(self) -> SkeddaVenue:
         """Return the venue rules the scheduler needs: timezone, window, quota."""
-        payload = await self._webs()
+        payload = await self._fetch_webs()
         venues = payload.get("venue")
         if not isinstance(venues, list) or not venues:
             raise ApiContractError(f"/webs carried no 'venue' entry; keys {sorted(payload)}")
@@ -153,7 +193,7 @@ class SkeddaClient:
         afford a round trip at the instant a window opens.
         """
         if self._identity is None:
-            self._identity = SkeddaIdentity.from_payload(await self._webs())
+            self._identity = SkeddaIdentity.from_payload(await self._fetch_webs())
         return self._identity
 
     async def create_booking(self, request: SkeddaBookingRequest) -> SkeddaBooking:
@@ -183,10 +223,21 @@ class SkeddaClient:
             endpoints.Endpoint(endpoints.BOOKING_CANCEL.method, endpoints.booking_path(booking_id))
         )
 
-    async def _webs(self) -> dict[str, Any]:
+    async def _fetch_webs(self) -> dict[str, Any]:
+        """The venue page, fetched at most once every WEBS_CACHE_SECONDS.
+
+        Rules, courts and our own ids all come from it, and a refresh reads
+        all three. Asking three times for one answer is rude to a service that
+        never invited us.
+        """
+        now = time.monotonic()
+        if self._webs is not None and now - self._webs_fetched_at < WEBS_CACHE_SECONDS:
+            return self._webs
         _, body, _ = await self.request(endpoints.SPACES)
         if not isinstance(body, dict):
             raise ApiContractError(f"/webs returned {type(body).__name__}, not an object")
+        self._webs = body
+        self._webs_fetched_at = now
         return body
 
     @staticmethod
@@ -218,6 +269,28 @@ class SkeddaClient:
         if issubclass(failure, AuthExpiredError):
             self._session = None
             self._identity = None
+            self._venue_token = None
+
+    async def _venue_antiforgery_token(self) -> str | None:
+        """The token this venue will accept, read from one of its own pages.
+
+        The contract is explicit that the token is per page load and
+        host-scoped. Offering the sign-in host's token to the venue asks one
+        server to accept another's credential, and Skedda answers that with a
+        page about a "potential security problem" rather than anything a
+        client can act on.
+        """
+        if self._venue_token is not None:
+            return self._venue_token
+        venue_home = endpoints.base_url(self._credentials.venue) + "/"
+        try:
+            self._venue_token = await self._fetch_antiforgery_token(venue_home)
+        except ApiContractError:
+            # A venue that serves no token must not cost the user every
+            # booking; the sign-in token is the best remaining guess.
+            _LOGGER.debug("No antiforgery token on %s; using the sign-in token", venue_home)
+            self._venue_token = self._session.antiforgery_token if self._session else None
+        return self._venue_token
 
     async def _fetch_antiforgery_token(self, url: str) -> str:
         status, text, _ = await self._get_text(url)

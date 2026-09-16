@@ -119,3 +119,53 @@ async def test_the_underlying_client_is_reachable_for_diagnostics(
 ) -> None:
     """Diagnostics and the clock estimate read it; booking never should."""
     assert provider.client.clock.samples > 0
+
+
+async def test_bookings_are_marked_as_ours_or_somebody_else_s(
+    provider: SkeddaProvider, skedda: FakeSkedda
+) -> None:
+    """The venue returns its whole diary; only ours belong on our calendar."""
+    skedda.stub("GET", endpoints.BOOKINGS_LIST.path, json=load("bookings_list.json"))
+
+    bookings = await provider.list_bookings(
+        DateRange(
+            start=datetime(2026, 9, 28, tzinfo=KYIV),
+            end=datetime(2026, 9, 30, tzinfo=KYIV),
+        )
+    )
+
+    assert [booking.is_mine for booking in bookings] == [True, False]
+
+
+async def test_booking_times_arrive_with_the_venue_s_zone_attached(
+    provider: SkeddaProvider, skedda: FakeSkedda
+) -> None:
+    """Skedda writes a bare wall clock: no offset, no Z.
+
+    Observed live 2026-09-16: the calendar refused to load the event, and the
+    guard against booking a slot twice had never once matched, because a naive
+    time never equals an aware one.
+    """
+    skedda.stub("GET", endpoints.BOOKINGS_LIST.path, json=load("bookings_list.json"))
+
+    bookings = await provider.list_bookings(
+        DateRange(
+            start=datetime(2026, 9, 28, tzinfo=KYIV),
+            end=datetime(2026, 9, 30, tzinfo=KYIV),
+        )
+    )
+
+    assert bookings[0].start.tzinfo is not None
+    assert bookings[0].start == datetime(2026, 9, 28, 8, 0, tzinfo=KYIV)
+    assert bookings[0].end == datetime(2026, 9, 28, 9, 0, tzinfo=KYIV)
+
+
+async def test_a_created_booking_comes_back_with_a_zone_too(
+    provider: SkeddaProvider, skedda: FakeSkedda
+) -> None:
+    skedda.stub("POST", endpoints.BOOKINGS.path, json=load("booking_created.json"))
+
+    booking = await provider.book(REQUEST)
+
+    assert booking.start.tzinfo is not None
+    assert booking.start.utcoffset() == datetime(2026, 9, 28, tzinfo=KYIV).utcoffset()

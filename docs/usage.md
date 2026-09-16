@@ -4,11 +4,38 @@ Once an account and at least one booking job exist, the integration runs on its 
 This page describes what it exposes so you can watch it, drive it and automate
 around it.
 
+## The Skedda panel
+
+**Skedda** in the sidebar shows three tables, each sorted and each naming the
+account responsible:
+
+- **Bookings** — the court times this account holds.
+- **Booking jobs** — what will be booked next, and when its window opens.
+- **Accounts** — green when the account can sign in, red when it cannot.
+
+It is a view, not an editor. Adding and editing open Home Assistant's own
+dialogs, so there is one implementation of the forms rather than two.
+
+## Calendars
+
+Each account publishes two calendar entities, so Home Assistant's own calendar
+view shows the week or the month with the two coloured apart:
+
+| Entity | Shows |
+|---|---|
+| `calendar.<account>_bookings` | Court times the account holds |
+| `calendar.<account>_pending` | Slots a job still means to book, with the date its window opens |
+
+A slot leaves the pending calendar the moment it appears on the booked one, so
+the same court time is never on both.
+
 ## Devices
 
-Each account becomes a device, and each booking job becomes a device attached to it.
-Job entities are therefore grouped by job in the interface, and a whole job can be
+Each booking job becomes a device: it groups five entities, so a whole job can be
 renamed or hidden in one place.
+
+An account does not. It is the config entry, and its one entity - the
+authentication sensor - carries the account in its own entity id.
 
 ## Entities
 
@@ -18,6 +45,7 @@ renamed or hidden in one place.
 |---|---|---|
 | `Next run` | sensor (timestamp) | When the integration will next wake up for this job. Unknown once the season has ended. |
 | `Last outcome` | sensor | `success`, or the reason the last run failed: `slot_taken`, `quota_exceeded`, `window_closed`, `too_early`, `auth_failed`, `rate_limited`, `contract_error`, `connection_error`, or `already_booked` when the slot was already held and nothing was sent. |
+| `Status` | sensor | `armed` while a booking attempt is scheduled, `disabled` when switched off, `out_of_season` once the season has ended. |
 | `Job enabled` | switch | Pauses or resumes the job without deleting it. |
 | `Run now` | button | Runs the job immediately instead of waiting for its window. |
 
@@ -29,6 +57,33 @@ renamed or hidden in one place.
 | Entity | Type | Meaning |
 |---|---|---|
 | `Authentication` | binary sensor (problem) | `on` means the account cannot currently be used — wrong password, or the venue is unreachable. |
+
+## How often it talks to the venue
+
+The integration is quiet by design. Each job arms a single timer for the moment
+its booking window opens and sleeps until then - there is no polling in between.
+
+The account itself is polled to keep courts, rules and bookings fresh, and that
+poll follows what is due:
+
+| Situation | Poll |
+|---|---|
+| Nothing due - out of season, or every job switched off | every 12 hours |
+| Next attempt more than six hours away | every 12 hours |
+| Next attempt within six hours | hourly |
+| Next attempt within the hour | every 15 minutes |
+
+The twelve-hourly floor is deliberate: a password that has stopped working is
+better discovered in February than on the morning the season opens.
+
+For one weekly job that is roughly **fifty requests a week**, most of them in
+the hours around the booking window. Each poll is two requests, not three: the
+venue's rules and its courts arrive in the same payload, and one fetch stands
+in for the other.
+
+A booking run adds the sign-in, a warm-up and up to five attempts, and only a
+run that actually booked something asks for a refresh afterwards - the venue's
+diary does not change unless we change it.
 
 ## Services
 

@@ -46,36 +46,44 @@ and asks for the new one. You can also use **Reconfigure** on the entry at any t
 
 ## Adding a booking job
 
-Open the account entry under **Settings → Devices & Services** and choose
-**Add booking job**.
+Open the account under **Settings → Devices & Services** and choose
+**Book a court**. Home Assistant calls these subentries; the button is on the
+integration's page, not on the account's device page.
 
-### The slot
+The form asks four things, because they are the four only you can know:
 
 | Field | Meaning | Example |
 |---|---|---|
-| **Job name** | A label for this job. Names the device and its entities. | `Tuesday 18:00` |
 | **Court** | Which space to book. The list is read from your venue. | `Court 1` |
-| **Day of week** | The weekday the slot falls on. | `Tuesday` |
-| **Start time** | Local start time at the venue. | `18:00` |
-| **Duration** | Length in minutes. The step follows the venue's own booking granularity — at a venue that books whole hours, 15 minutes is not offered, because the server would refuse it. | `60` |
+| **Date** | The date to book. Pre-filled with the furthest date the venue currently accepts, which is usually the one worth racing for. | `29/09/2026` |
+| **Start time** | Local start time at the venue. | `20:00` |
+| **Duration** | Length in minutes. Pre-filled from the bookings your account already holds, then held to the venue's slot size and weekly allowance. | `60` |
 
-### The booking window
+**Repeat** is `Once` unless you change it. A one-off books that single date and
+then has nothing left to do. `Every week` or `Every other week` keeps booking
+the same weekday - taken from the date you picked, so the two can never
+disagree.
 
-This one field describes your venue's reservation policy, and everything about
-timing follows from it. It is pre-filled from the venue's own settings, so in most
-cases you should leave it alone.
+Choosing to repeat opens a second step, because a repeating job is the only
+kind with anything left to decide. A one-off is finished in one screen:
 
-| Field | Meaning | Example |
-|---|---|---|
-| **Booking opens this many days before** | How far ahead the venue accepts reservations. | `14` |
+| Field | Default |
+|---|---|
+| **Job name** and **Booking title** | Written from your answers: `Court 1 · Tuesdays 20:00` |
+| **Repeat until** | Empty, meaning no end. This is where a season goes: a court paid for until the end of autumn stops there. |
+| **Booking opens this many days before** | The venue's own horizon |
+| **Strategy** | Precise |
+| **Notify these services with the result** | None |
 
-The horizon rolls with the clock rather than unlocking at midnight. With the example
-value, a slot at 18:00 on Tuesday the 29th becomes bookable at 18:00 on Tuesday the
-15th — the same time of day, exactly that many days earlier.
+Editing a job shows every field at once. A job that already exists should not
+be harder to change than an unknown one is to create.
 
-Match the venue exactly. Set it larger and every request goes out before the venue
-will accept anything; set it smaller and the request arrives days after the slot
-became available to everyone else.
+### Seasons
+
+A season is the stretch during which the job is allowed to run - typically the
+months your venue subscription is paid for. Set **Repeat until** to the last
+date; outside it the job's status reads *Out of season*, no timer is armed, and
+the account stops being polled. Extend the date when the new season starts.
 
 ### Limits the form will not let you past
 
@@ -86,22 +94,6 @@ while you are still in the form rather than failing quietly every week:
 - a **window** wider than the venue's own horizon.
 
 Both limits are read from the venue and shown in the form's description.
-
-### Repetition
-
-| Field | Meaning |
-|---|---|
-| **Repeat** | `Every week` or `Every other week`. Fortnightly repetition is anchored on the season start, so it keeps its rhythm across restarts. |
-| **Season starts** | The first date the job is active. |
-| **Season ends** | Optional. The last date the job is active. Leave empty to run indefinitely. |
-
-### Submission and reporting
-
-| Field | Meaning |
-|---|---|
-| **Booking title shown in Skedda** | The title written on the reservation itself. |
-| **Strategy** | `Precise` or `Immediate`. See below. |
-| **Notify these services with the result** | Optional. Any `notify` services that should receive the outcome. |
 
 ## Strategies
 

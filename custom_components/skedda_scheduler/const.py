@@ -16,6 +16,7 @@ SUBENTRY_TYPE_JOB: Final = "job"
 
 CONF_SPACE_ID: Final = "space_id"
 CONF_WEEKDAY: Final = "weekday"
+CONF_START_DATE: Final = "start_date"
 CONF_START_TIME: Final = "start_time"
 CONF_DURATION: Final = "duration_minutes"
 CONF_WINDOW_DAYS: Final = "window_days"
@@ -29,6 +30,12 @@ CONF_ENABLED: Final = "enabled"
 CONF_NAME: Final = "name"
 
 ATTR_JOB_ID: Final = "job_id"
+
+#: Why a job is not about to do anything, in words rather than by absence.
+#: Shared by the status sensor and the panel, so the two cannot drift apart.
+STATUS_ARMED: Final = "armed"
+STATUS_DISABLED: Final = "disabled"
+STATUS_OUT_OF_SEASON: Final = "out_of_season"
 
 #: Venues commonly cap a member's weekly allowance at an hour - the venue this
 #: was built against allows exactly 60 minutes per week (quotaRules in the

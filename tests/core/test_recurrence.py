@@ -107,8 +107,12 @@ def test_occurrences_are_strictly_ascending() -> None:
 
 
 def test_every_occurrence_falls_on_the_configured_weekday() -> None:
-    """The one property that must hold for every frequency and offset."""
-    for frequency in Frequency:
+    """The one property that must hold for every repeating frequency and offset.
+
+    A one-off is excluded on purpose: its date was picked from a calendar, so
+    it keeps that date rather than being shifted onto a weekday.
+    """
+    for frequency in (Frequency.WEEKLY, Frequency.BIWEEKLY):
         for weekday in range(7):
             rule = RecurrenceRule(frequency=frequency, weekday=weekday, season_start=SEASON_START)
             dates = rule.occurrences(after=date(2026, 10, 7), limit=5)
@@ -145,3 +149,28 @@ def test_rules_are_immutable() -> None:
     rule = weekly()
     with pytest.raises(AttributeError):
         rule.weekday = 3  # type: ignore[misc]
+
+
+def test_a_one_off_happens_exactly_once() -> None:
+    """Most bookings are a single date, so that is what the form offers first."""
+    rule = RecurrenceRule(frequency=Frequency.ONCE, weekday=1, season_start=date(2026, 9, 29))
+
+    assert rule.occurrences(after=date(2026, 9, 1), limit=10) == [date(2026, 9, 29)]
+
+
+def test_a_one_off_that_has_passed_has_nothing_left() -> None:
+    rule = RecurrenceRule(frequency=Frequency.ONCE, weekday=1, season_start=date(2026, 9, 29))
+
+    assert rule.next_occurrence(after=date(2026, 9, 30)) is None
+
+
+def test_a_one_off_ignores_a_season_end_beyond_it() -> None:
+    """The single date is the whole series; a longer season changes nothing."""
+    rule = RecurrenceRule(
+        frequency=Frequency.ONCE,
+        weekday=1,
+        season_start=date(2026, 9, 29),
+        season_end=date(2026, 12, 31),
+    )
+
+    assert rule.occurrences(after=date(2026, 9, 1), limit=10) == [date(2026, 9, 29)]
