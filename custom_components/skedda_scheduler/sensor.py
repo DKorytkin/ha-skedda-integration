@@ -14,7 +14,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import SkeddaConfigEntry
-from .const import CONF_ENABLED, SUBENTRY_TYPE_JOB
+from .const import (
+    CONF_ENABLED,
+    STATUS_ARMED,
+    STATUS_DISABLED,
+    STATUS_OUT_OF_SEASON,
+    SUBENTRY_TYPE_JOB,
+)
 from .coordinator import SkeddaCoordinator
 from .core.job import BookingJob
 from .entity import SkeddaJobEntity
@@ -25,10 +31,6 @@ NEXT_RUN = SensorEntityDescription(
 )
 LAST_OUTCOME = SensorEntityDescription(key="last_outcome", translation_key="last_outcome")
 
-#: Why a job is not about to do anything, in words rather than by absence.
-STATUS_ARMED = "armed"
-STATUS_DISABLED = "disabled"
-STATUS_OUT_OF_SEASON = "out_of_season"
 STATUS = SensorEntityDescription(
     key="status",
     translation_key="status",

@@ -32,6 +32,12 @@ CONF_NAME: Final = "name"
 
 ATTR_JOB_ID: Final = "job_id"
 
+#: Why a job is not about to do anything, in words rather than by absence.
+#: Shared by the status sensor and the panel, so the two cannot drift apart.
+STATUS_ARMED: Final = "armed"
+STATUS_DISABLED: Final = "disabled"
+STATUS_OUT_OF_SEASON: Final = "out_of_season"
+
 #: Venues commonly cap a member's weekly allowance at an hour - the venue this
 #: was built against allows exactly 60 minutes per week (quotaRules in the
 #: contract doc). The job form raises it where the venue allows more.

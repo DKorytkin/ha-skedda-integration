@@ -19,6 +19,7 @@ from .scheduler import JobScheduler
 from .services import async_setup_services
 from .skedda_provider import SkeddaProvider
 from .store import AttemptStore
+from .websocket import async_register as async_register_websocket
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
@@ -48,8 +49,9 @@ type SkeddaConfigEntry = ConfigEntry[SkeddaRuntimeData]
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Register the services once, whatever accounts exist."""
+    """Register the services and the panel's data source, once."""
     async_setup_services(hass)
+    async_register_websocket(hass)
     return True
 
 
