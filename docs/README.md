@@ -23,6 +23,10 @@ events and notifications.
 | [Architecture](architecture.md) | How the integration is put together and why |
 | [Troubleshooting](troubleshooting.md) | Diagnostics, repair issues, common failures |
 
+The **Skedda** panel in the sidebar shows bookings, jobs and accounts at a
+glance, and each account publishes calendars that Home Assistant's own calendar
+view renders by week or by month.
+
 ## Features
 
 - **Recurring bookings** — weekly or fortnightly, bounded by a season start and end date.
@@ -40,13 +44,9 @@ events and notifications.
 
 Deliberate omissions, in the order they are likely to be missed:
 
-- **A sidebar panel.** Booking jobs live under Settings, which is where you
-  configure them but not where you would glance at them. A panel of its own
-  needs a frontend module shipped alongside the integration; until then, a
-  dashboard with the job entities does the same job in two minutes. Worth
-  building once somebody has enough jobs to want a page for them.
-- **A calendar platform.** Upcoming bookings as a calendar entity, and a sink
-  that writes each successful booking into a calendar of your choosing.
+- **A calendar sink.** Bookings appear as calendar entities already; what is
+  missing is writing each successful booking into a calendar of your choosing.
+  An automation on the success event does this today.
 - **Fallback courts.** The model already carries a list of spaces per job and
   treats "slot taken" as its own outcome; what is missing is trying the next
   court when the first is gone.

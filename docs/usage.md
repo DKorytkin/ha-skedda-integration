@@ -4,11 +4,38 @@ Once an account and at least one booking job exist, the integration runs on its 
 This page describes what it exposes so you can watch it, drive it and automate
 around it.
 
+## The Skedda panel
+
+**Skedda** in the sidebar shows three tables, each sorted and each naming the
+account responsible:
+
+- **Bookings** — the court times this account holds.
+- **Booking jobs** — what will be booked next, and when its window opens.
+- **Accounts** — green when the account can sign in, red when it cannot.
+
+It is a view, not an editor. Adding and editing open Home Assistant's own
+dialogs, so there is one implementation of the forms rather than two.
+
+## Calendars
+
+Each account publishes two calendar entities, so Home Assistant's own calendar
+view shows the week or the month with the two coloured apart:
+
+| Entity | Shows |
+|---|---|
+| `calendar.<account>_bookings` | Court times the account holds |
+| `calendar.<account>_pending` | Slots a job still means to book, with the date its window opens |
+
+A slot leaves the pending calendar the moment it appears on the booked one, so
+the same court time is never on both.
+
 ## Devices
 
-Each account becomes a device, and each booking job becomes a device attached to it.
-Job entities are therefore grouped by job in the interface, and a whole job can be
+Each booking job becomes a device: it groups five entities, so a whole job can be
 renamed or hidden in one place.
+
+An account does not. It is the config entry, and its one entity - the
+authentication sensor - carries the account in its own entity id.
 
 ## Entities
 
