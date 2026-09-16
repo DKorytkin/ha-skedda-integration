@@ -221,5 +221,8 @@
       "title": "Skedda changed its API",
       "description": "Skedda returned something this integration does not recognise, so the booking was abandoned. Please open an issue with the diagnostics attached.\n\nDetail: {detail}"
     }
+  },
+  "application_credentials": {
+    "description": "Home Assistant cannot invite anyone to a calendar event, so this integration talks to Google directly - and Google needs the credential to be yours. One-off setup:\n1. Enable the [Google Calendar API]({api_library_url}).\n1. On the [OAuth consent screen]({oauth_consent_url}) choose **External**, then **publish** the app. Left in testing it hands out a refresh token that expires after seven days, and the link would need renegotiating every week. Published but unverified is fine - it is your own app, used by you.\n1. At [Credentials]({oauth_creds_url}) create an **OAuth client ID** of type **Web application**, with `{redirect_url}` as an authorised redirect URI.\n1. Paste the client ID and secret below."
   }
 }

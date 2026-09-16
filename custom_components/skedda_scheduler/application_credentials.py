@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from homeassistant.components.application_credentials import AuthorizationServer
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_entry_oauth2_flow
 
 AUTHORIZATION_SERVER = AuthorizationServer(
     authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
@@ -26,8 +27,15 @@ async def async_get_description_placeholders(hass: HomeAssistant) -> dict[str, s
     Creating an OAuth client is the one part of this nobody can automate, so
     the least we can do is point at the exact pages.
     """
+    try:
+        redirect_url = config_entry_oauth2_flow.async_get_redirect_uri(hass)
+    except RuntimeError:
+        # Only knowable from inside a request when My Home Assistant is not
+        # set up. Naming the usual one beats naming none.
+        redirect_url = config_entry_oauth2_flow.MY_AUTH_CALLBACK_PATH
     return {
         "oauth_consent_url": "https://console.cloud.google.com/apis/credentials/consent",
         "oauth_creds_url": "https://console.cloud.google.com/apis/credentials",
         "api_library_url": "https://console.cloud.google.com/apis/library/calendar-json.googleapis.com",
+        "redirect_url": redirect_url,
     }

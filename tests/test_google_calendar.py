@@ -406,6 +406,41 @@ async def test_the_credentials_dialog_points_at_the_pages_that_matter(
     assert "oauth2.googleapis.com" in server.token_url
     assert "credentials" in placeholders["oauth_creds_url"]
     assert "calendar" in placeholders["api_library_url"], "the API has to be enabled too"
+    assert placeholders["redirect_url"].startswith("https://")
+
+
+async def test_the_credentials_dialog_names_the_redirect_the_client_needs(
+    hass: HomeAssistant,
+) -> None:
+    """Google refuses the sign-in unless this exact URI is on the client."""
+    from homeassistant.helpers import config_entry_oauth2_flow
+
+    from custom_components.skedda_scheduler.application_credentials import (
+        async_get_description_placeholders,
+    )
+
+    hass.config.components.add("my")
+    placeholders = await async_get_description_placeholders(hass)
+
+    assert placeholders["redirect_url"] == config_entry_oauth2_flow.MY_AUTH_CALLBACK_PATH
+
+
+async def test_every_link_the_dialog_mentions_is_supplied(hass: HomeAssistant) -> None:
+    """A placeholder with nothing behind it renders as a broken instruction."""
+    import json
+    from pathlib import Path
+    from string import Formatter
+
+    from custom_components.skedda_scheduler.application_credentials import (
+        async_get_description_placeholders,
+    )
+
+    path = Path("custom_components/skedda_scheduler/strings.json")
+    strings = json.loads(await hass.async_add_executor_job(path.read_text, "utf-8"))
+    description = strings["application_credentials"]["description"]
+    wanted = {name for _, name, _, _ in Formatter().parse(description) if name}
+
+    assert wanted <= set(await async_get_description_placeholders(hass))
 
 
 async def test_the_token_is_refreshed_before_every_use(
