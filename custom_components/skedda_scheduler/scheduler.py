@@ -64,6 +64,11 @@ _ERROR_STATUS: tuple[tuple[type[SkeddaError], AttemptStatus], ...] = (
 #: genuinely transient; this is the back-off that makes the retry defensible.
 RATE_LIMIT_BACKOFF_SECONDS = 2.0
 
+#: How many occurrences to walk past when looking for a window that has not
+#: opened yet. A season is finite and the horizon is short; this is a guard
+#: against a rule that somehow yields dates for ever.
+_CATCH_UP_SEARCH_LIMIT = 12
+
 #: How soon a job may fire when its window is already open. Not zero: Home
 #: Assistant's time tracker runs a wake-up that is already due immediately, so
 #: a zero delay turns "catch up on an open window" into a hot loop.
@@ -138,6 +143,16 @@ class JobRunner:
             return
 
         opens_at = self.job.window.opens_at(slot)
+        if self.attempted_slot is not None and opens_at <= now:
+            # One catch-up per run of Home Assistant, not one per open window.
+            # A weekly job at a venue allowing an hour a week has several open
+            # windows at once, and firing at all of them means one booking and
+            # a run of refusals - each of which reaches the user's phone.
+            slot_and_window = self._next_unopened_slot(now)
+            if slot_and_window is None:
+                _LOGGER.debug("Job %s has caught up; nothing opens later", self.job.job_id)
+                return
+            slot, opens_at = slot_and_window
         arm_at = build_strategy(self.job.strategy).plan(opens_at).arm_at
         # Never in the past: a due wake-up fires immediately, and a run that
         # arms one loops however it came about.
@@ -151,6 +166,19 @@ class JobRunner:
             slot,
             opens_at,
         )
+
+    def _next_unopened_slot(self, now: datetime) -> tuple[datetime, datetime] | None:
+        """The first slot whose window has not opened yet, with that instant."""
+        probe = now
+        for _ in range(_CATCH_UP_SEARCH_LIMIT):
+            slot = self.job.next_slot(probe)
+            if slot is None:
+                return None
+            opens_at = self.job.window.opens_at(slot[0])
+            if opens_at > now:
+                return slot[0], opens_at
+            probe = slot[0]
+        return None
 
     def _next_untried_slot(self, now: datetime) -> datetime | None:
         """The start of the next slot worth arming for."""
@@ -327,23 +355,26 @@ class JobRunner:
 
     async def _async_finish(self, outcome: BookingOutcome) -> None:
         await self.store.async_record(outcome)
-        self._async_notify_entities()
+        self._async_notify_entities(refresh=outcome.succeeded)
         await async_dispatch(self.sinks, outcome, self.job)
 
     @callback
-    def _async_notify_entities(self) -> None:
-        """Push the new outcome to the entities, then catch the data up.
+    def _async_notify_entities(self, *, refresh: bool) -> None:
+        """Push the new outcome to the entities, and only then ask the venue.
 
-        The history lives in the store, which nothing polls, so without this
-        the job's sensor would keep reporting the previous run until the next
-        quarter-hourly poll. The refresh is for the booking we just made.
+        The history lives in the store, which nothing polls, so without the
+        first part the job's sensor would report the previous run until the
+        next poll. The second part is for the booking we just made - a run
+        that booked nothing changed nothing at the venue, and asking anyway is
+        two requests for no new information.
         """
         try:
             coordinator = self.entry.runtime_data.coordinator
         except AttributeError:
             return
         coordinator.async_update_listeners()
-        self.hass.async_create_task(coordinator.async_request_refresh())
+        if refresh:
+            self.hass.async_create_task(coordinator.async_request_refresh())
 
     async def _async_sleep_until(self, server_instant: datetime) -> None:
         """Sleep until our clock reads the moment Skedda's clock reads this.

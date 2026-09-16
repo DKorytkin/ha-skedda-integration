@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -56,6 +57,11 @@ _READ_PATHS = frozenset({endpoints.SPACES.path, endpoints.BOOKINGS_LIST.path})
 #: wrong, and this response carries nothing else to go on.
 _SECURITY_REFUSAL = "potential security problem"
 
+#: How long one fetch of /webs stands in for the next. The venue's rules,
+#: courts and our own ids all arrive in that one payload and are read
+#: separately, so without this every poll asked for the same page twice.
+WEBS_CACHE_SECONDS = 30.0
+
 
 class SkeddaClient:
     """One authenticated conversation with one Skedda venue."""
@@ -69,6 +75,8 @@ class SkeddaClient:
         #: is not accepted there. Cached for the session: fetching a page
         #: before every request would double the cost of a burst.
         self._venue_token: str | None = None
+        self._webs: dict[str, Any] | None = None
+        self._webs_fetched_at = 0.0
         self.clock = ClockSync()
 
     @property
@@ -93,6 +101,7 @@ class SkeddaClient:
         self._session = None
         self._identity = None
         self._venue_token = None
+        self._webs = None
         token = await self._fetch_antiforgery_token(
             endpoints.LOGIN_HOST + endpoints.LOGIN_PAGE.path
         )
@@ -163,7 +172,7 @@ class SkeddaClient:
 
     async def list_spaces(self) -> list[SkeddaSpace]:
         """Return the venue's bookable spaces. Skedda calls these "assets"."""
-        payload = await self._webs()
+        payload = await self._fetch_webs()
         assets = payload.get("assets")
         if not isinstance(assets, list):
             raise ApiContractError(f"/webs carried no 'assets' list; keys {sorted(payload)}")
@@ -171,7 +180,7 @@ class SkeddaClient:
 
     async def venue_settings(self) -> SkeddaVenue:
         """Return the venue rules the scheduler needs: timezone, window, quota."""
-        payload = await self._webs()
+        payload = await self._fetch_webs()
         venues = payload.get("venue")
         if not isinstance(venues, list) or not venues:
             raise ApiContractError(f"/webs carried no 'venue' entry; keys {sorted(payload)}")
@@ -184,7 +193,7 @@ class SkeddaClient:
         afford a round trip at the instant a window opens.
         """
         if self._identity is None:
-            self._identity = SkeddaIdentity.from_payload(await self._webs())
+            self._identity = SkeddaIdentity.from_payload(await self._fetch_webs())
         return self._identity
 
     async def create_booking(self, request: SkeddaBookingRequest) -> SkeddaBooking:
@@ -214,10 +223,21 @@ class SkeddaClient:
             endpoints.Endpoint(endpoints.BOOKING_CANCEL.method, endpoints.booking_path(booking_id))
         )
 
-    async def _webs(self) -> dict[str, Any]:
+    async def _fetch_webs(self) -> dict[str, Any]:
+        """The venue page, fetched at most once every WEBS_CACHE_SECONDS.
+
+        Rules, courts and our own ids all come from it, and a refresh reads
+        all three. Asking three times for one answer is rude to a service that
+        never invited us.
+        """
+        now = time.monotonic()
+        if self._webs is not None and now - self._webs_fetched_at < WEBS_CACHE_SECONDS:
+            return self._webs
         _, body, _ = await self.request(endpoints.SPACES)
         if not isinstance(body, dict):
             raise ApiContractError(f"/webs returned {type(body).__name__}, not an object")
+        self._webs = body
+        self._webs_fetched_at = now
         return body
 
     @staticmethod

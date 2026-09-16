@@ -625,3 +625,90 @@ async def test_publishing_the_next_arming_survives_an_account_that_never_loaded(
     scheduler.async_shutdown()
 
     assert scheduler.runners == {}
+
+
+async def test_a_job_catches_up_on_one_slot_and_then_waits(
+    runner: JobRunner, mock_provider: AsyncMock, no_sleep: None
+) -> None:
+    """Reported 2026-09-16: a phone buzzing with quota_exceeded.
+
+    A weekly job whose windows are all open would otherwise fire at every one
+    of them in turn, and at a venue allowing an hour a week every shot after
+    the first is refused. One catch-up, then back to precise timing.
+    """
+    with patch("custom_components.skedda_scheduler.scheduler.dt_util.utcnow", return_value=NOW):
+        runner.async_schedule()
+        caught_up = runner.armed_for
+        await runner._async_armed(NOW)
+        after = runner.armed_for
+        runner.async_cancel()
+
+    assert caught_up == NOW + CATCH_UP_DELAY, "the open window is taken at once"
+    assert after is not None
+    # Not another due-now wake-up: the next arming waits for a window that has
+    # not opened yet.
+    assert after > NOW + timedelta(days=1)
+
+
+async def test_a_restart_may_catch_up_again(runner: JobRunner, mock_provider: AsyncMock) -> None:
+    """Catching up is per run, not per slot: a fresh runner tries once more.
+
+    Home Assistant restarting is the case this exists for - the window may
+    have opened while it was down.
+    """
+    with patch("custom_components.skedda_scheduler.scheduler.dt_util.utcnow", return_value=NOW):
+        runner.async_schedule()
+        armed = runner.armed_for
+        runner.async_cancel()
+
+    assert armed == NOW + CATCH_UP_DELAY
+
+
+async def test_a_season_that_ends_inside_the_horizon_stops_rather_than_spins(
+    runner: JobRunner, mock_provider: AsyncMock, no_sleep: None
+) -> None:
+    """Every remaining window is open and there is no later one to wait for."""
+    runner.job = replace(JOB, recurrence=replace(JOB.recurrence, season_end=date(2026, 9, 15)))
+
+    with patch("custom_components.skedda_scheduler.scheduler.dt_util.utcnow", return_value=NOW):
+        await runner._async_armed(NOW)
+
+    assert runner.armed_for is None
+
+
+async def test_the_catch_up_search_gives_up_rather_than_walking_for_ever(
+    runner: JobRunner, mock_provider: AsyncMock
+) -> None:
+    """A rule yielding dates endlessly must not hold the event loop."""
+    far_future = NOW + timedelta(days=3650)
+    runner.job = replace(JOB, window=BookingWindow(window_days=4000))
+
+    with patch(
+        "custom_components.skedda_scheduler.scheduler.dt_util.utcnow",
+        return_value=far_future,
+    ):
+        assert runner._next_unopened_slot(far_future) is None
+
+
+async def test_only_a_booking_that_landed_costs_an_extra_poll(
+    runner: JobRunner, mock_provider: AsyncMock, no_sleep: None
+) -> None:
+    """A refresh after every run is two more requests for no new information.
+
+    The venue's diary only changes when we change it.
+    """
+    coordinator = runner.entry.runtime_data.coordinator
+    mock_provider.book.side_effect = SlotTakenError("gone")
+    mock_provider.list_bookings.reset_mock()
+
+    await runner.async_run_now()
+    await runner.hass.async_block_till_done()
+    after_failure = mock_provider.list_bookings.await_count
+
+    mock_provider.book.side_effect = None
+    await runner.async_run_now()
+    await runner.hass.async_block_till_done()
+
+    assert after_failure == 0
+    assert mock_provider.list_bookings.await_count > 0
+    assert coordinator.last_update_success

@@ -209,3 +209,48 @@ async def test_the_default_sinks_are_the_event_bus_and_notifications(
 ) -> None:
     sinks = build_default_sinks(hass)
     assert [type(sink) for sink in sinks] == [HaEventSink, NotifySink]
+
+
+async def test_a_run_that_sent_nothing_sends_no_notification(
+    hass: HomeAssistant, notify_calls: list[ServiceCall]
+) -> None:
+    """A job whose slot is already ours fires nothing and is not news.
+
+    Reported 2026-09-16: a phone buzzing constantly. Every arming of an
+    already-booked job ended in a run with no attempts, and every one of those
+    was announced.
+    """
+    nothing_happened = replace(
+        outcome(succeeded=False), attempts=(), no_attempt_reason="already_booked"
+    )
+
+    await NotifySink(hass).async_handle(nothing_happened, JOB)
+    await hass.async_block_till_done()
+
+    assert notify_calls == []
+
+
+async def test_a_real_attempt_is_always_announced(
+    hass: HomeAssistant, notify_calls: list[ServiceCall]
+) -> None:
+    """Both outcomes matter: one is the court, the other is why not."""
+    for result in (True, False):
+        await NotifySink(hass).async_handle(outcome(succeeded=result), JOB)
+    await hass.async_block_till_done()
+
+    assert len(notify_calls) == 2
+
+
+async def test_the_event_bus_still_hears_about_every_run(
+    hass: HomeAssistant,
+) -> None:
+    """Events are the automation surface and cost nobody's attention."""
+    events = async_capture_events(hass, EVENT_BOOKING_FAILED)
+    nothing_happened = replace(
+        outcome(succeeded=False), attempts=(), no_attempt_reason="already_booked"
+    )
+
+    await HaEventSink(hass).async_handle(nothing_happened, JOB)
+    await hass.async_block_till_done()
+
+    assert len(events) == 1

@@ -39,6 +39,17 @@ class NotifySink:
         self._hass = hass
 
     async def async_handle(self, outcome: BookingOutcome, job: BookingJob) -> None:
+        if not outcome.attempts:
+            # Nothing was sent to Skedda, so nothing happened worth a buzz: the
+            # slot was already ours, or the season is over. Arming a job of
+            # that kind is routine, and announcing routine is what makes
+            # notifications worth turning off.
+            _LOGGER.debug(
+                "Job %s finished without an attempt (%s); not notifying",
+                job.job_id,
+                outcome.failure_reason,
+            )
+            return
         message = build_message(outcome, job)
         for target in job.notify_targets:
             domain, _, service = target.partition(".")

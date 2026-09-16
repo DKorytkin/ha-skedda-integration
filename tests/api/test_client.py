@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 import aiohttp
 import pytest
 
 from custom_components.skedda_scheduler.api import endpoints
-from custom_components.skedda_scheduler.api.client import SkeddaClient
+from custom_components.skedda_scheduler.api.client import WEBS_CACHE_SECONDS, SkeddaClient
 from custom_components.skedda_scheduler.api.errors import (
     ApiContractError,
     AuthExpiredError,
@@ -20,6 +22,8 @@ from custom_components.skedda_scheduler.api.errors import (
 )
 from custom_components.skedda_scheduler.api.models import SkeddaCredentials
 from tests.conftest import FakeSkedda
+
+WEBS = json.loads(Path("tests/fixtures/skedda/webs.json").read_text())
 
 CREDS = SkeddaCredentials(venue="myclub", email="user@example.com", password="secret")
 TOKEN = "CfDJ8-test-token"
@@ -472,3 +476,49 @@ async def test_a_refused_sign_in_attempt_is_not_a_wrong_password(
 
     with pytest.raises(SignInBlockedError):
         await client.authenticate()
+
+
+async def test_the_same_page_is_not_fetched_twice_in_one_breath(
+    http: aiohttp.ClientSession, skedda: FakeSkedda
+) -> None:
+    """Venue rules and courts arrive in one payload, and are read separately.
+
+    Every poll asked /webs for it twice. Against a service that never invited
+    us, half of every poll was a question we had just asked.
+    """
+    client = await authenticated(http, skedda)
+    skedda.stub("GET", endpoints.SPACES.path, json=WEBS, headers=DATE)
+
+    await client.venue_settings()
+    await client.list_spaces()
+
+    assert len(skedda.requests_for("GET", endpoints.SPACES.path)) == 1
+
+
+async def test_a_stale_page_is_fetched_again(
+    http: aiohttp.ClientSession, skedda: FakeSkedda
+) -> None:
+    """The cache is for one refresh, not for the day: courts do change."""
+    client = await authenticated(http, skedda)
+    skedda.stub("GET", endpoints.SPACES.path, json=WEBS, headers=DATE)
+
+    await client.venue_settings()
+    client._webs_fetched_at -= WEBS_CACHE_SECONDS + 1
+    await client.list_spaces()
+
+    assert len(skedda.requests_for("GET", endpoints.SPACES.path)) == 2
+
+
+async def test_signing_in_again_forgets_the_page(
+    http: aiohttp.ClientSession, skedda: FakeSkedda
+) -> None:
+    """A different account would otherwise be shown the last one's venue."""
+    client = await authenticated(http, skedda)
+    skedda.stub("GET", endpoints.SPACES.path, json=WEBS, headers=DATE)
+    await client.venue_settings()
+
+    stub_login(skedda)
+    await client.authenticate()
+    await client.venue_settings()
+
+    assert len(skedda.requests_for("GET", endpoints.SPACES.path)) == 2
