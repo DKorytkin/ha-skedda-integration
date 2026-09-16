@@ -67,14 +67,20 @@ One-off setup, roughly ten minutes:
    [Google Calendar API](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com).
 3. Configure the
    [OAuth consent screen](https://console.cloud.google.com/apis/credentials/consent)
-   as **External**, and add yourself as a test user.
+   as **External**, then **publish** it. An app left in *Testing* is issued a
+   refresh token that expires after seven days, and the link would need
+   renegotiating every week. Published but unverified is fine here - it is your
+   own app used by you - though Google shows an "unverified app" warning the
+   first time, behind **Advanced**.
 4. Create an **OAuth client ID** of type *Web application* at
    [Credentials](https://console.cloud.google.com/apis/credentials), with the
-   redirect URI Home Assistant shows you.
+   redirect URI Home Assistant shows you - usually
+   `https://my.home-assistant.io/redirect/oauth`.
 5. Give the client id and secret to Home Assistant when it asks.
 
 This is the same procedure Home Assistant's own Google integration requires,
-and the credential can be reused between them.
+and one client covers both: Home Assistant keeps credentials per integration,
+so reuse means entering the same id and secret again, not returning to Google.
 
 ### What gets written
 
