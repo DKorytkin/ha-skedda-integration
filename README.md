@@ -18,11 +18,11 @@ clock, then reports what happened as entities, events and notifications.
 
 ## Status
 
-v0.0.1 — the first release. Home Assistant 2026.3.0 or newer.
+v0.1.0. Home Assistant 2026.3.0 or newer.
 
-The code is complete and tested, but no booking has yet been placed by the
-integration running inside Home Assistant. Treat this release as one to try
-rather than one to rely on for a slot you care about.
+It books: the first courts were taken by the integration running inside Home
+Assistant on 16 September 2026. Treat it as young software all the same —
+every failure it has had so far was found by running it, not by reading it.
 
 ## How it works
 
