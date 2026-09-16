@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from zoneinfo import ZoneInfo
 
 from homeassistant.core import HomeAssistant
@@ -13,6 +13,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.skedda_scheduler.core.provider import Booking
 from tests.helpers import setup_with_job
+from tests.test_google_calendar import calendar_entry
 
 KYIV = ZoneInfo("Europe/Kyiv")
 
@@ -351,3 +352,49 @@ async def test_two_accounts_are_both_listed_with_their_own_jobs(
     assert sorted(account["title"] for account in result["accounts"]) == both
     assert sorted(job["account"] for job in result["jobs"]) == both
     assert {job["entry_id"] for job in result["jobs"]} == {mock_entry.entry_id, "entry-vika"}
+
+
+async def test_a_linked_calendar_is_not_mistaken_for_an_account(
+    hass: HomeAssistant,
+    hass_ws_client: Any,
+    mock_entry: MockConfigEntry,
+    mock_provider: AsyncMock,
+) -> None:
+    """It holds a Google link, not a venue, and has no runtime data to read."""
+    await setup_with_job(hass, mock_entry)
+    linked = calendar_entry()
+    linked.add_to_hass(hass)
+    with patch(
+        "custom_components.skedda_scheduler.google_calendar.async_build_client",
+        return_value=AsyncMock(),
+    ):
+        assert await hass.config_entries.async_setup(linked.entry_id)
+        await hass.async_block_till_done()
+    client = await hass_ws_client(hass)
+
+    result = await overview(client)
+
+    assert [account["entry_id"] for account in result["accounts"]] == [mock_entry.entry_id]
+
+
+async def test_the_calendar_link_holds_no_bookings_to_cancel(
+    hass: HomeAssistant,
+    hass_ws_client: Any,
+    mock_entry: MockConfigEntry,
+    mock_provider: AsyncMock,
+) -> None:
+    await setup_with_job(hass, mock_entry)
+    linked = calendar_entry()
+    linked.add_to_hass(hass)
+    client = await hass_ws_client(hass)
+
+    await client.send_json_auto_id(
+        {
+            "type": "skedda_scheduler/cancel_booking",
+            "entry_id": linked.entry_id,
+            "booking_id": "b1",
+        }
+    )
+    response = await client.receive_json()
+
+    assert response["error"]["code"] == "not_loaded"

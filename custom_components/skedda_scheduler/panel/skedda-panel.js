@@ -211,7 +211,11 @@ class SkeddaPanel extends HTMLElement {
     const t = this._t;
     const body = this.shadowRoot.getElementById("body");
     if (!this._data) {
-      body.innerHTML = `<div class="card"><div class="empty">${esc(t.loading)}</div></div>`;
+      // An error before the first reply would otherwise hide behind a
+      // loading message that never goes away.
+      const message = this._error ? `<div class="error">${esc(this._error)}</div>`
+        : `<div class="empty">${esc(t.loading)}</div>`;
+      body.innerHTML = `<div class="card">${message}</div>`;
       return;
     }
     const { accounts, bookings, jobs } = this._data;
