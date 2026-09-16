@@ -85,6 +85,15 @@ A booking run adds the sign-in, a warm-up and up to five attempts, and only a
 run that actually booked something asks for a refresh afterwards - the venue's
 diary does not change unless we change it.
 
+## Google Calendar
+
+If a Google calendar is linked, every booking that lands is written to it as an
+event — title, address, time, and an invitation to everyone on the list. See
+[Configuration](configuration.md#putting-bookings-in-google-calendar).
+
+Home Assistant's own calendar services cannot invite anyone, which is why this
+talks to Google directly and why it needs a credential of yours.
+
 ## Services
 
 ### `skedda_scheduler.trigger_job_now`

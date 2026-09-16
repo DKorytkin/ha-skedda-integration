@@ -490,3 +490,32 @@ async def test_the_calendar_list_is_fetched_with_the_token_just_issued(
         await hass.config_entries.flow.async_configure(result["flow_id"])
 
     assert seen == ["brand-new"]
+
+
+async def test_the_calendar_settings_can_be_changed_afterwards(
+    hass: HomeAssistant, credentials: None
+) -> None:
+    """Who comes to tennis changes more often than the Google account does."""
+    linked = calendar_entry()
+    linked.add_to_hass(hass)
+
+    with patch(LIST_CALENDARS, return_value=CALENDARS):
+        result = await linked.start_reconfigure_flow(hass)
+
+        assert result["step_id"] == "calendar_settings"
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_CALENDAR_ID: "family@example.com",
+                CONF_EVENT_TITLE: "Теніс 🎾",
+                CONF_LOCATION: "Kyiv",
+                CONF_ATTENDEES: ["vika@example.com"],
+            },
+        )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert linked.data[CONF_CALENDAR_ID] == "family@example.com"
+    assert linked.data[CONF_ATTENDEES] == ["vika@example.com"]
+    # The token is not re-issued by an edit.
+    assert linked.data["token"]["refresh_token"] == "refresh"

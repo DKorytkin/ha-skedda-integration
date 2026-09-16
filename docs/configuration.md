@@ -44,6 +44,54 @@ its own booking jobs. The same account cannot be added twice.
 If Skedda rejects the stored password, Home Assistant raises a repair notification
 and asks for the new one. You can also use **Reconfigure** on the entry at any time.
 
+## Putting bookings in Google Calendar
+
+Optional, and separate from any one account: link it once and every booking
+that lands becomes an event, with the people you name invited to it.
+
+**Settings → Devices & Services → Add Integration → Skedda Scheduler → Google
+Calendar.**
+
+### Why this needs your own Google credential
+
+Home Assistant can create a calendar event but cannot invite anybody to one —
+neither `calendar.create_event` nor `google.add_event` accepts attendees. To
+send invitations the integration has to talk to Google's Calendar API itself,
+and Google requires the credential to be yours.
+
+One-off setup, roughly ten minutes:
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), create a
+   project (or reuse one).
+2. Enable the
+   [Google Calendar API](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com).
+3. Configure the
+   [OAuth consent screen](https://console.cloud.google.com/apis/credentials/consent)
+   as **External**, and add yourself as a test user.
+4. Create an **OAuth client ID** of type *Web application* at
+   [Credentials](https://console.cloud.google.com/apis/credentials), with the
+   redirect URI Home Assistant shows you.
+5. Give the client id and secret to Home Assistant when it asks.
+
+This is the same procedure Home Assistant's own Google integration requires,
+and the credential can be reused between them.
+
+### What gets written
+
+| Field | |
+|---|---|
+| **Calendar** | Only calendars you can write to are listed. |
+| **Event title** | `Tennis 🎾` unless you change it. |
+| **Address** | Shown on the event and used for directions. |
+| **Invite by email** | Google emails each person an invitation. Leave empty to book quietly. |
+
+Only bookings that succeeded are written. If Google cannot be reached the
+booking still stands and the failure is logged — a missing diary entry must not
+look like a lost court.
+
+Change any of it later with **Reconfigure** on the Google Calendar entry; the
+link itself is not renegotiated.
+
 ## Adding a booking job
 
 Open the account under **Settings → Devices & Services** and choose

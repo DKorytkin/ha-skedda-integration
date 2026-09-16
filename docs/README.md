@@ -39,14 +39,13 @@ view renders by week or by month.
   booking job to one of them.
 - **Visible results** — every attempt is recorded, exposed as entities, published on
   the event bus, and optionally pushed to a notification service.
+- **Google Calendar** — optionally, every booking that lands becomes an event
+  with the people who are coming invited to it.
 
 ## What is not here yet
 
 Deliberate omissions, in the order they are likely to be missed:
 
-- **A calendar sink.** Bookings appear as calendar entities already; what is
-  missing is writing each successful booking into a calendar of your choosing.
-  An automation on the success event does this today.
 - **Fallback courts.** The model already carries a list of spaces per job and
   treats "slot taken" as its own outcome; what is missing is trying the next
   court when the first is gone.

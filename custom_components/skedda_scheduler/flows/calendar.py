@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlowResult
+from homeassistant.config_entries import SOURCE_RECONFIGURE, ConfigFlowResult
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
@@ -66,6 +66,12 @@ async def async_calendar_step(
     if user_input is not None:
         return async_create_calendar_entry(flow, token_data, user_input)
 
+    defaults = defaults or {
+        key: token_data[key]
+        for key in (CONF_CALENDAR_ID, CONF_EVENT_TITLE, CONF_LOCATION, CONF_ATTENDEES)
+        if key in token_data
+    }
+
     session = async_create_clientsession(flow.hass)
 
     async def token() -> str:
@@ -86,7 +92,7 @@ async def async_calendar_step(
     return flow.async_show_form(
         step_id="calendar_settings",
         data_schema=settings_schema(
-            [(calendar.id, calendar.name) for calendar in calendars], defaults or {}
+            [(calendar.id, calendar.name) for calendar in calendars], defaults
         ),
     )
 
@@ -94,14 +100,12 @@ async def async_calendar_step(
 def async_create_calendar_entry(
     flow: SkeddaConfigFlow, token_data: dict[str, Any], user_input: dict[str, Any]
 ) -> ConfigFlowResult:
-    return flow.async_create_entry(
-        title="Google Calendar",
-        data={
-            **token_data,
-            **user_input,
-            CONF_ENTRY_KIND: ENTRY_KIND_CALENDAR,
-        },
-    )
+    data = {**token_data, **user_input, CONF_ENTRY_KIND: ENTRY_KIND_CALENDAR}
+    if flow.source == SOURCE_RECONFIGURE:
+        # Editing keeps the link Google already granted; only the settings
+        # around it change.
+        return flow.async_update_reload_and_abort(flow._get_reconfigure_entry(), data=data)
+    return flow.async_create_entry(title="Google Calendar", data=data)
 
 
 __all__ = ["async_calendar_step", "async_create_calendar_entry", "settings_schema"]

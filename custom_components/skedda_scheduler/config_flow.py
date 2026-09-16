@@ -40,6 +40,7 @@ from .const import (
     CONF_VENUE_TIMEZONE,
     DOMAIN,
     ENTRY_KIND_ACCOUNT,
+    ENTRY_KIND_CALENDAR,
     SUBENTRY_TYPE_JOB,
 )
 from .core.provider import VenueRules
@@ -156,6 +157,18 @@ class SkeddaConfigFlow(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, domai
         )
 
     async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Edit whichever kind of entry this is."""
+        entry = self._get_reconfigure_entry()
+        if entry.data.get(CONF_ENTRY_KIND) == ENTRY_KIND_CALENDAR:
+            # Who comes to tennis changes more often than the Google account
+            # does, so this edits the settings without asking Google again.
+            self._token_data = dict(entry.data)
+            return await self.async_step_calendar_settings(user_input)
+        return await self.async_step_account_reconfigure(user_input)
+
+    async def async_step_account_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Correct any of the account's details in place."""
