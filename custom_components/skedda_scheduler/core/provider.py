@@ -29,6 +29,9 @@ class Space:
 class Booking:
     id: str
     space_ids: tuple[str, ...]
+    #: Timezone-aware, in the venue's zone. The wire carries a bare wall clock;
+    #: attaching the zone is the adapter's job, and skipping it makes every
+    #: comparison against a real instant quietly false.
     start: datetime
     end: datetime
     title: str
@@ -36,15 +39,28 @@ class Booking:
     #: hands back everybody's bookings, and a calendar of everybody's is noise.
     is_mine: bool = False
 
+    def __post_init__(self) -> None:
+        if self.start.tzinfo is None or self.end.tzinfo is None:
+            # Caught here rather than three layers away, where it showed up as
+            # a calendar that would not load and a duplicate-booking guard
+            # that never matched anything.
+            raise ValueError(f"booking {self.id} carries a time without a timezone")
+
 
 @dataclass(frozen=True, slots=True)
 class BookingRequest:
     """One space, one interval. Who is booking is the adapter's business."""
 
     space_id: str
+    #: Timezone-aware, in the venue's zone. The transport strips the offset
+    #: when it serialises; it cannot invent one.
     start: datetime
     end: datetime
     title: str
+
+    def __post_init__(self) -> None:
+        if self.start.tzinfo is None or self.end.tzinfo is None:
+            raise ValueError("booking times must carry the venue's timezone")
 
 
 @dataclass(frozen=True, slots=True)

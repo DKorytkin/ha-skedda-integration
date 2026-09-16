@@ -7,6 +7,8 @@ appears here belongs in core/ instead.
 
 from __future__ import annotations
 
+from zoneinfo import ZoneInfo
+
 from .api.client import SkeddaClient
 from .api.models import SkeddaBooking, SkeddaBookingRequest
 from .core.provider import Booking, BookingRequest, DateRange, Space, VenueRules
@@ -43,6 +45,7 @@ class SkeddaProvider:
         )
 
     async def book(self, request: BookingRequest) -> Booking:
+        venue = await self._client.venue_settings()
         created = await self._client.create_booking(
             SkeddaBookingRequest(
                 space_ids=(request.space_id,),
@@ -51,7 +54,7 @@ class SkeddaProvider:
                 title=request.title,
             )
         )
-        return self._to_booking(created)
+        return self._to_booking(created, venue.timezone)
 
     async def list_bookings(self, window: DateRange) -> list[Booking]:
         """Every booking the venue reports, each marked as ours or not.
@@ -61,19 +64,27 @@ class SkeddaProvider:
         has to answer, since only it knows our membership id.
         """
         identity = await self._client.identity()
+        venue = await self._client.venue_settings()
         found = await self._client.list_bookings(window.start, window.end)
-        return [self._to_booking(item, identity.venueuser_id) for item in found]
+        return [self._to_booking(item, venue.timezone, identity.venueuser_id) for item in found]
 
     async def cancel(self, booking_id: str) -> None:
         await self._client.cancel_booking(booking_id)
 
     @staticmethod
-    def _to_booking(item: SkeddaBooking, venueuser_id: str | None = None) -> Booking:
+    def _to_booking(item: SkeddaBooking, timezone: str, venueuser_id: str | None = None) -> Booking:
+        """Give the venue's wall clock its zone.
+
+        Skedda writes booking times with no offset and no Z: they are the
+        venue's local time and nothing else. Passing them along unchanged
+        leaves every later comparison against a real instant quietly false.
+        """
+        venue_tz = ZoneInfo(timezone)
         return Booking(
             id=item.id,
             space_ids=item.space_ids,
-            start=item.start,
-            end=item.end,
+            start=item.start.replace(tzinfo=venue_tz),
+            end=item.end.replace(tzinfo=venue_tz),
             title=item.title,
             is_mine=venueuser_id is not None and item.venueuser_id == venueuser_id,
         )
