@@ -86,3 +86,8 @@ can be listed in the default HACS catalogue:
   `.github/workflows/validate.yml` passes `ignore: brands` to the HACS action.
   Installing as a custom repository works without it; being listed does not.
   Remove the `ignore` line once the brands pull request is merged.
+
+  The images are ready in [`assets/brands/`](assets/brands), and
+  [`assets/README.md`](assets/README.md) explains what to submit and the one
+  decision still open: they are rendered in near-black rather than Skedda's own
+  brand colour.
