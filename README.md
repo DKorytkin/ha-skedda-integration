@@ -18,7 +18,7 @@ clock, then reports what happened as entities, events and notifications.
 
 ## Status
 
-v0.1.0. Home Assistant 2026.3.0 or newer.
+v0.2.0. Home Assistant 2026.3.0 or newer.
 
 It books: the first courts were taken by the integration running inside Home
 Assistant on 16 September 2026. Treat it as young software all the same —
@@ -52,6 +52,11 @@ Add an account with your venue subdomain, email and password; the venue's timezo
 slot size, booking horizon and weekly allowance are read from the venue itself. Then
 add one booking job per recurring slot. Every field is explained in
 [docs/configuration.md](docs/configuration.md).
+
+Optionally link a Google calendar, and every booking that lands becomes an event
+with the people you name invited to it. Home Assistant cannot invite anyone to a
+calendar event, so this talks to Google directly and needs an OAuth client of your
+own - the same one Home Assistant's Google integration uses, if you already have it.
 
 ## Documentation
 
