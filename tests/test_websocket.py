@@ -196,3 +196,121 @@ async def test_a_job_whose_season_has_ended_reads_as_out_of_season(
 
     assert jobs[0]["status"] == "out_of_season"
     assert jobs[0]["armed_for"] is None
+
+
+async def test_a_job_reports_the_slot_it_is_actually_aiming_at(
+    hass: HomeAssistant,
+    hass_ws_client: Any,
+    mock_entry: MockConfigEntry,
+    mock_provider: AsyncMock,
+) -> None:
+    """Reported 2026-09-16: a window shown that had already opened.
+
+    After catching up, a runner aims at the next slot whose window has yet to
+    open. Reading the nearest occurrence instead described a target the runner
+    had already passed.
+    """
+    subentry_id = await setup_with_job(hass, mock_entry)
+    runner = mock_entry.runtime_data.scheduler.runner_for(subentry_id)
+    client = await hass_ws_client(hass)
+
+    job = (await overview(client))["jobs"][0]
+
+    assert job["next_slot"] == runner.armed_slot.isoformat()
+    assert job["armed_for"] == runner.armed_for.isoformat()
+    assert job["opens_at"] == runner.job.window.opens_at(runner.armed_slot).isoformat()
+
+
+async def test_a_booking_can_be_cancelled_from_the_panel(
+    hass: HomeAssistant,
+    hass_ws_client: Any,
+    mock_entry: MockConfigEntry,
+    mock_provider: AsyncMock,
+) -> None:
+    """Skedda has no form of ours to borrow for this, so it is ours to do."""
+    await setup_with_job(hass, mock_entry)
+    client = await hass_ws_client(hass)
+
+    await client.send_json_auto_id(
+        {
+            "type": "skedda_scheduler/cancel_booking",
+            "entry_id": mock_entry.entry_id,
+            "booking_id": "bk-1",
+        }
+    )
+    response = await client.receive_json()
+
+    assert response["success"], response
+    mock_provider.cancel.assert_awaited_once_with("bk-1")
+
+
+async def test_cancelling_refreshes_so_the_panel_stops_showing_it(
+    hass: HomeAssistant,
+    hass_ws_client: Any,
+    mock_entry: MockConfigEntry,
+    mock_provider: AsyncMock,
+) -> None:
+    await setup_with_job(hass, mock_entry)
+    mock_provider.list_bookings.reset_mock()
+    client = await hass_ws_client(hass)
+
+    await client.send_json_auto_id(
+        {
+            "type": "skedda_scheduler/cancel_booking",
+            "entry_id": mock_entry.entry_id,
+            "booking_id": "bk-1",
+        }
+    )
+    await client.receive_json()
+
+    mock_provider.list_bookings.assert_awaited()
+
+
+async def test_a_cancellation_the_venue_refuses_is_reported_not_swallowed(
+    hass: HomeAssistant,
+    hass_ws_client: Any,
+    mock_entry: MockConfigEntry,
+    mock_provider: AsyncMock,
+) -> None:
+    """Silence would leave the booking on screen and the user guessing."""
+    from custom_components.skedda_scheduler.api.errors import SkeddaConnectionError
+
+    await setup_with_job(hass, mock_entry)
+    mock_provider.cancel.side_effect = SkeddaConnectionError("down")
+    client = await hass_ws_client(hass)
+
+    await client.send_json_auto_id(
+        {
+            "type": "skedda_scheduler/cancel_booking",
+            "entry_id": mock_entry.entry_id,
+            "booking_id": "bk-1",
+        }
+    )
+    response = await client.receive_json()
+
+    assert response["success"] is False
+    assert "down" in response["error"]["message"]
+
+
+async def test_cancelling_on_an_account_that_is_not_loaded_says_so(
+    hass: HomeAssistant, hass_ws_client: Any, mock_entry: MockConfigEntry
+) -> None:
+    from homeassistant.setup import async_setup_component
+
+    from custom_components.skedda_scheduler.const import DOMAIN
+
+    mock_entry.add_to_hass(hass)
+    assert await async_setup_component(hass, DOMAIN, {})
+    client = await hass_ws_client(hass)
+
+    await client.send_json_auto_id(
+        {
+            "type": "skedda_scheduler/cancel_booking",
+            "entry_id": mock_entry.entry_id,
+            "booking_id": "bk-1",
+        }
+    )
+    response = await client.receive_json()
+
+    assert response["success"] is False
+    assert response["error"]["code"] == "not_loaded"

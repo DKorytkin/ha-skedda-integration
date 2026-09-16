@@ -12,11 +12,16 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.components.websocket_api import async_register_command
 from homeassistant.components.websocket_api.connection import ActiveConnection
-from homeassistant.components.websocket_api.decorators import require_admin, websocket_command
+from homeassistant.components.websocket_api.decorators import (
+    async_response,
+    require_admin,
+    websocket_command,
+)
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.util import dt as dt_util
 
+from .api.errors import SkeddaError
 from .const import (
     CONF_ENABLED,
     CONF_VENUE,
@@ -29,11 +34,13 @@ from .const import (
 from .job_factory import build_job, venue_timezone_for
 
 TYPE_OVERVIEW = f"{DOMAIN}/overview"
+TYPE_CANCEL = f"{DOMAIN}/cancel_booking"
 
 
 @callback
 def async_register(hass: HomeAssistant) -> None:
     async_register_command(hass, websocket_overview)
+    async_register_command(hass, websocket_cancel_booking)
 
 
 @require_admin
@@ -94,7 +101,10 @@ def _jobs(hass: HomeAssistant, entry: ConfigEntry) -> list[dict[str, Any]]:
         except ValueError, KeyError:
             continue
         runner = runtime.scheduler.runner_for(subentry_id) if runtime.scheduler else None
-        slot = job.next_slot(dt_util.utcnow())
+        # What the runner is aiming at, not merely the nearest occurrence: the
+        # two differ once a job has caught up on an already-open window.
+        aimed = runner.armed_slot if runner and runner.armed_slot else None
+        slot = (aimed, aimed) if aimed else job.next_slot(dt_util.utcnow())
         found.append(
             {
                 "job_id": subentry_id,
@@ -138,3 +148,35 @@ def _status(data: Any, runner: Any) -> str:
     if runner is not None and runner.armed_for is not None:
         return STATUS_ARMED
     return STATUS_OUT_OF_SEASON
+
+
+@require_admin
+@websocket_command(
+    {
+        vol.Required("type"): TYPE_CANCEL,
+        vol.Required("entry_id"): str,
+        vol.Required("booking_id"): str,
+    }
+)
+@async_response
+async def websocket_cancel_booking(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Release a court time.
+
+    The one action the panel performs itself: Home Assistant has no dialog to
+    borrow for it, and a booking you can see but not release is an invitation
+    to go and do it somewhere else.
+    """
+    entry = hass.config_entries.async_get_entry(msg["entry_id"])
+    if entry is None or entry.state is not ConfigEntryState.LOADED:
+        connection.send_error(msg["id"], "not_loaded", "That account is not set up.")
+        return
+    try:
+        await entry.runtime_data.provider.cancel(msg["booking_id"])
+    except SkeddaError as err:
+        connection.send_error(msg["id"], "cancel_failed", str(err))
+        return
+    # The panel reads the diary, so it has to change before the reply lands.
+    await entry.runtime_data.coordinator.async_refresh()
+    connection.send_result(msg["id"], {"cancelled": msg["booking_id"]})

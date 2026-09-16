@@ -51,3 +51,34 @@ def test_the_panel_script_is_shipped_and_self_contained() -> None:
     assert "skedda_scheduler/overview" in source
     assert "import(" not in source
     assert "http://" not in source and "https://" not in source
+
+
+def test_the_panel_speaks_every_language_the_integration_ships() -> None:
+    """A panel in English under a Ukrainian interface is half-translated."""
+    source = PANEL_JS.read_text(encoding="utf-8")
+
+    for language in ("en", "uk"):
+        assert f"  {language}: {{" in source, f"no strings for {language}"
+    assert "Завдання бронювання" in source
+    assert "hass?.language" in source or "hass.language" in source
+
+
+def test_the_panel_escapes_what_the_venue_sends() -> None:
+    """Court and booking titles come from Skedda and land in HTML."""
+    source = PANEL_JS.read_text(encoding="utf-8")
+
+    assert "function esc(" in source
+    assert "innerHTML" in source
+    # Every interpolation of remote data goes through esc(); spot-check the
+    # ones that carry venue text.
+    for field in ("booking.court", "job.court", "account.title"):
+        assert f"esc({field})" in source
+
+
+def test_the_panel_can_release_a_booking_and_nothing_else() -> None:
+    """One action of its own; everything else opens Home Assistant's pages."""
+    source = PANEL_JS.read_text(encoding="utf-8")
+
+    assert "skedda_scheduler/cancel_booking" in source
+    assert "confirmCancel" in source
+    assert "/config/integrations/integration/skedda_scheduler" in source

@@ -109,6 +109,10 @@ class JobRunner:
         self.semaphore = semaphore
         self._on_schedule = on_schedule
         self.armed_for: datetime | None = None
+        #: The slot this arming is aimed at. Not always the nearest one: after
+        #: catching up, the runner moves to the first window that has yet to
+        #: open, and anything describing the job has to say the same.
+        self.armed_slot: datetime | None = None
         #: The slot the last run fired at, so the next arming moves past it.
         self.attempted_slot: datetime | None = None
         self._unsub: CALLBACK_TYPE | None = None
@@ -157,6 +161,7 @@ class JobRunner:
         # Never in the past: a due wake-up fires immediately, and a run that
         # arms one loops however it came about.
         self.armed_for = max(arm_at, now + CATCH_UP_DELAY)
+        self.armed_slot = slot
         self._unsub = async_track_point_in_utc_time(self.hass, self._async_armed, self.armed_for)
         self._announce()
         _LOGGER.debug(
@@ -193,6 +198,7 @@ class JobRunner:
             self._unsub()
             self._unsub = None
         self.armed_for = None
+        self.armed_slot = None
         self._announce()
 
     @callback
