@@ -119,3 +119,19 @@ async def test_the_underlying_client_is_reachable_for_diagnostics(
 ) -> None:
     """Diagnostics and the clock estimate read it; booking never should."""
     assert provider.client.clock.samples > 0
+
+
+async def test_bookings_are_marked_as_ours_or_somebody_else_s(
+    provider: SkeddaProvider, skedda: FakeSkedda
+) -> None:
+    """The venue returns its whole diary; only ours belong on our calendar."""
+    skedda.stub("GET", endpoints.BOOKINGS_LIST.path, json=load("bookings_list.json"))
+
+    bookings = await provider.list_bookings(
+        DateRange(
+            start=datetime(2026, 9, 28, tzinfo=KYIV),
+            end=datetime(2026, 9, 30, tzinfo=KYIV),
+        )
+    )
+
+    assert [booking.is_mine for booking in bookings] == [True, False]

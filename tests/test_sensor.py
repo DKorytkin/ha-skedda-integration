@@ -68,35 +68,14 @@ async def test_a_job_that_has_never_run_has_no_outcome_to_report(
     assert hass.states.get(LAST_OUTCOME).attributes["booking_id"] is None
 
 
-async def test_each_job_is_its_own_device_under_the_account(
+async def test_a_job_is_a_device_and_an_account_is_not(
     hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
 ) -> None:
-    """So a job's entities group together and can be renamed as one."""
-    from homeassistant.helpers import device_registry as dr
+    """A job groups five entities, which is what a device is for.
 
-    from custom_components.skedda_scheduler.const import DOMAIN
-
-    subentry_id = await setup_with_job(hass, mock_entry)
-    registry = dr.async_get(hass)
-
-    account = registry.async_get_device_by_identifier(
-        (DOMAIN, mock_entry.entry_id), mock_entry.entry_id
-    )
-    job = registry.async_get_device_by_identifier(
-        (DOMAIN, f"{mock_entry.entry_id}:{subentry_id}"), mock_entry.entry_id
-    )
-    assert account is not None
-    assert job is not None
-    assert job.via_device_id == account.id
-
-
-async def test_the_account_and_its_jobs_are_services_not_things_in_a_room(
-    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
-) -> None:
-    """Neither an account nor a booking job sits anywhere in the house.
-
-    Without this Home Assistant treats them as appliances and offers to file
-    them in a room, which is a question with no sensible answer.
+    An account is the config entry. Giving it a device too produced a service
+    named "Denys" containing a device named "Denys", under a heading about
+    devices that belong to no sub-entry.
     """
     from homeassistant.helpers import device_registry as dr
 
@@ -105,14 +84,27 @@ async def test_the_account_and_its_jobs_are_services_not_things_in_a_room(
     subentry_id = await setup_with_job(hass, mock_entry)
     registry = dr.async_get(hass)
 
-    account = registry.async_get_device_by_identifier(
-        (DOMAIN, mock_entry.entry_id), mock_entry.entry_id
-    )
     job = registry.async_get_device_by_identifier(
         (DOMAIN, f"{mock_entry.entry_id}:{subentry_id}"), mock_entry.entry_id
     )
-    assert account.entry_type is dr.DeviceEntryType.SERVICE
+    assert job is not None
     assert job.entry_type is dr.DeviceEntryType.SERVICE
+
+    assert (
+        registry.async_get_device_by_identifier((DOMAIN, mock_entry.entry_id), mock_entry.entry_id)
+        is None
+    )
+    assert len(dr.async_entries_for_config_entry(registry, mock_entry.entry_id)) == 1
+
+
+async def test_the_account_entity_carries_the_account_in_its_id(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Device-less entities are named by their own name alone, so two accounts
+    would otherwise both want binary_sensor.authentication."""
+    await setup_with_job(hass, mock_entry)
+
+    assert hass.states.get("binary_sensor.main_account_oleh_authentication") is not None
 
 
 async def test_a_job_says_plainly_whether_it_is_going_to_do_anything(

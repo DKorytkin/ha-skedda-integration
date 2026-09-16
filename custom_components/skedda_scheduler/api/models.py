@@ -94,12 +94,18 @@ class SkeddaBooking:
     start: datetime
     end: datetime
     title: str
+    #: Whose booking this is. /bookingslists returns the whole venue's, so
+    #: telling ours apart is the difference between a calendar of our court
+    #: times and a calendar of everybody's.
+    venueuser_id: str | None = None
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> SkeddaBooking:
+        owner = payload.get("venueuser")
         return cls(
             id=str(_require(payload, "id")),
             space_ids=tuple(str(x) for x in _require(payload, "spaces")),
+            venueuser_id=str(owner) if owner is not None else None,
             start=_parse_local(payload, "start"),
             end=_parse_local(payload, "end"),
             # The venue does not require titles, so null is normal, not a

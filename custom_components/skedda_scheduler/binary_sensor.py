@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from homeassistant.components.binary_sensor import (
+    DOMAIN as BINARY_SENSOR_DOMAIN,
+)
+from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
@@ -35,7 +38,7 @@ class AccountAuthenticatedBinarySensor(SkeddaAccountEntity, BinarySensorEntity):
     entity_description = AUTHENTICATION
 
     def __init__(self, coordinator: SkeddaCoordinator) -> None:
-        super().__init__(coordinator)
+        super().__init__(coordinator, BINARY_SENSOR_DOMAIN)
         self._attr_unique_id = f"{coordinator.config_entry.entry_id}:authentication"
 
     @property

@@ -8,13 +8,12 @@ from dataclasses import dataclass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.typing import ConfigType
 
 from .api.client import SkeddaClient
 from .api.models import SkeddaCredentials
-from .const import CONF_VENUE, DOMAIN
+from .const import CONF_VENUE
 from .coordinator import SkeddaCoordinator
 from .scheduler import JobScheduler
 from .services import async_setup_services
@@ -40,9 +39,6 @@ class SkeddaRuntimeData:
     #: bad anywhere, but at a venue with a weekly quota one job can burn the
     #: allowance the other needed.
     semaphore: asyncio.Semaphore
-    #: The account's device, so each job can hang off it by id. Registered
-    #: here rather than by whichever platform happens to set up first.
-    account_device_id: str
     #: Filled in once the runtime data exists, because the scheduler reads it.
     scheduler: JobScheduler | None = None
 
@@ -85,21 +81,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bo
     # Jobs deleted while this account was unloaded would otherwise keep their
     # history in the file for good; a re-added job gets a fresh id anyway.
     await store.async_forget(set(entry.subentries))
-    account_device = dr.async_get(hass).async_get_or_create(
-        config_entry_id=entry.entry_id,
-        identifiers={(DOMAIN, entry.entry_id)},
-        name=entry.title,
-        manufacturer="Skedda",
-        model="Account",
-        entry_type=dr.DeviceEntryType.SERVICE,
-        configuration_url=f"https://{entry.data[CONF_VENUE]}.skedda.com",
-    )
     entry.runtime_data = SkeddaRuntimeData(
         provider=provider,
         coordinator=coordinator,
         store=store,
         semaphore=asyncio.Semaphore(1),
-        account_device_id=account_device.id,
     )
     # Before the platforms: an entity that asks the scheduler what a job is
     # doing would otherwise be created while there is nothing to ask, and

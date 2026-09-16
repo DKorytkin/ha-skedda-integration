@@ -54,18 +54,26 @@ class SkeddaProvider:
         return self._to_booking(created)
 
     async def list_bookings(self, window: DateRange) -> list[Booking]:
+        """Every booking the venue reports, each marked as ours or not.
+
+        Skedda returns the whole venue's diary, which is what makes a taken
+        slot detectable - and what makes "my bookings" a question the adapter
+        has to answer, since only it knows our membership id.
+        """
+        identity = await self._client.identity()
         found = await self._client.list_bookings(window.start, window.end)
-        return [self._to_booking(item) for item in found]
+        return [self._to_booking(item, identity.venueuser_id) for item in found]
 
     async def cancel(self, booking_id: str) -> None:
         await self._client.cancel_booking(booking_id)
 
     @staticmethod
-    def _to_booking(item: SkeddaBooking) -> Booking:
+    def _to_booking(item: SkeddaBooking, venueuser_id: str | None = None) -> Booking:
         return Booking(
             id=item.id,
             space_ids=item.space_ids,
             start=item.start,
             end=item.end,
             title=item.title,
+            is_mine=venueuser_id is not None and item.venueuser_id == venueuser_id,
         )

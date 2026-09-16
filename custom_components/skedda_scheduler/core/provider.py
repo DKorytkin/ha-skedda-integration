@@ -32,6 +32,9 @@ class Booking:
     start: datetime
     end: datetime
     title: str
+    #: Whether this booking belongs to the account that fetched it. A venue
+    #: hands back everybody's bookings, and a calendar of everybody's is noise.
+    is_mine: bool = False
 
 
 @dataclass(frozen=True, slots=True)

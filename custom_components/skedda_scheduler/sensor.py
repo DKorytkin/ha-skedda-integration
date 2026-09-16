@@ -72,7 +72,7 @@ class NextRunSensor(SkeddaJobEntity, SensorEntity):
     def __init__(
         self, coordinator: SkeddaCoordinator, job: BookingJob, entry: SkeddaConfigEntry
     ) -> None:
-        super().__init__(coordinator, job, entry.runtime_data.account_device_id)
+        super().__init__(coordinator, job)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}:{job.job_id}:next_run"
 
@@ -91,7 +91,7 @@ class LastOutcomeSensor(SkeddaJobEntity, SensorEntity):
     def __init__(
         self, coordinator: SkeddaCoordinator, job: BookingJob, entry: SkeddaConfigEntry
     ) -> None:
-        super().__init__(coordinator, job, entry.runtime_data.account_device_id)
+        super().__init__(coordinator, job)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}:{job.job_id}:last_outcome"
 
@@ -123,7 +123,7 @@ class JobStatusSensor(SkeddaJobEntity, SensorEntity):
     def __init__(
         self, coordinator: SkeddaCoordinator, job: BookingJob, entry: SkeddaConfigEntry
     ) -> None:
-        super().__init__(coordinator, job, entry.runtime_data.account_device_id)
+        super().__init__(coordinator, job)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}:{job.job_id}:status"
 
