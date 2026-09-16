@@ -121,3 +121,28 @@ async def test_removing_the_account_removes_its_history(
     await hass.async_block_till_done()
 
     assert hass_storage.get(storage_key(mock_entry), {}).get("data") in (None, {})
+
+
+async def test_the_account_device_left_by_an_earlier_version_is_cleared_away(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Home Assistant keeps a device an integration has stopped creating.
+
+    Until v0.0.1 an account was a device; it now has no entities and no
+    purpose, and leaving it makes the page list a thing that does nothing.
+    """
+    from homeassistant.helpers import device_registry as dr
+
+    from custom_components.skedda_scheduler.const import DOMAIN
+
+    mock_entry.add_to_hass(hass)
+    registry = dr.async_get(hass)
+    stale = registry.async_get_or_create(
+        config_entry_id=mock_entry.entry_id,
+        identifiers={(DOMAIN, mock_entry.entry_id)},
+        name="Denys",
+    )
+
+    await setup_entry(hass, mock_entry)
+
+    assert registry.async_get(stale.id) is None

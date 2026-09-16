@@ -7,13 +7,14 @@ from dataclasses import dataclass
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.typing import ConfigType
 
 from .api.client import SkeddaClient
 from .api.models import SkeddaCredentials
-from .const import CONF_VENUE
+from .const import CONF_VENUE, DOMAIN
 from .coordinator import SkeddaCoordinator
 from .panel import async_register_panel
 from .scheduler import JobScheduler
@@ -93,6 +94,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bo
     )
     await async_register_panel(hass)
 
+    _async_forget_the_account_device(hass, entry)
+
     # Before the platforms: an entity that asks the scheduler what a job is
     # doing would otherwise be created while there is nothing to ask, and
     # would report "out of season" until the next poll.
@@ -117,3 +120,16 @@ async def async_reload_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> N
 async def async_remove_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> None:
     """Take the account's booking history with it."""
     await AttemptStore(hass, entry).async_remove()
+
+
+@callback
+def _async_forget_the_account_device(hass: HomeAssistant, entry: SkeddaConfigEntry) -> None:
+    """Remove the device an earlier version gave the account.
+
+    Home Assistant keeps a device an integration has stopped creating, so
+    without this the page lists a thing with no entities and no purpose.
+    """
+    registry = dr.async_get(hass)
+    stale = registry.async_get_device_by_identifier((DOMAIN, entry.entry_id), entry.entry_id)
+    if stale is not None:
+        registry.async_remove_device(stale.id)
