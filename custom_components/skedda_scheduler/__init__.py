@@ -22,6 +22,7 @@ from .store import AttemptStore
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
+    Platform.CALENDAR,
     Platform.BUTTON,
     Platform.SENSOR,
     Platform.SWITCH,

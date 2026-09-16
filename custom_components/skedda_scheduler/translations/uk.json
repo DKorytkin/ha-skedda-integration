@@ -163,6 +163,14 @@
       "run_now": {
         "name": "Запустити зараз"
       }
+    },
+    "calendar": {
+      "bookings": {
+        "name": "Заброньовано"
+      },
+      "pending": {
+        "name": "Очікує"
+      }
     }
   },
   "services": {

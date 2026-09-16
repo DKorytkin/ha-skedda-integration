@@ -163,6 +163,14 @@
       "run_now": {
         "name": "Run now"
       }
+    },
+    "calendar": {
+      "bookings": {
+        "name": "Bookings"
+      },
+      "pending": {
+        "name": "Pending"
+      }
     }
   },
   "services": {
