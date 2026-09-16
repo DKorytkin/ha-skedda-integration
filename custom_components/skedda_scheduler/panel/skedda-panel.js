@@ -26,7 +26,7 @@ const STRINGS = {
     authorised: "authorised",
     signInProblem: "sign-in problem",
     manage: "Manage",
-    addJobShort: "Add booking job",
+    manageJobs: "Manage",
     existingBookings: "Existing bookings",
     bookingJobs: "Booking jobs",
     when: "When",
@@ -36,8 +36,6 @@ const STRINGS = {
     noBookings: "Nothing booked yet.",
     noJobs: "No booking jobs yet.",
     noAccounts: "No accounts yet.",
-    addJob: "Book a court",
-    edit: "Edit",
     cancel: "Cancel",
     cancelling: "Cancelling…",
     confirmCancel: "Release this court time?",
@@ -57,7 +55,7 @@ const STRINGS = {
     authorised: "авторизований",
     signInProblem: "помилка авторизації",
     manage: "Керувати",
-    addJobShort: "Додати завдання",
+    manageJobs: "Змінити",
     existingBookings: "Наявні бронювання",
     bookingJobs: "Завдання бронювання",
     when: "Коли",
@@ -67,8 +65,6 @@ const STRINGS = {
     noBookings: "Ще нічого не заброньовано.",
     noJobs: "Ще немає жодного завдання.",
     noAccounts: "Ще немає жодного акаунта.",
-    addJob: "Забронювати корт",
-    edit: "Змінити",
     cancel: "Скасувати",
     cancelling: "Скасовую…",
     confirmCancel: "Звільнити цей час на корті?",
@@ -231,8 +227,8 @@ class SkeddaPanel extends HTMLElement {
       )}
       ${card(
         t.bookingJobs,
-        `<a class="button" href="${SETTINGS_URL}">${esc(t.addJobShort)}</a>`,
-        [t.nextSlot, t.court, t.account, t.status, ""],
+        `<a class="button" href="${SETTINGS_URL}">${esc(t.manageJobs)}</a>`,
+        [t.nextSlot, t.court, t.account, t.status],
         jobs.map((job) => jobRow(t, job)),
         t.noJobs,
       )}
@@ -297,12 +293,13 @@ function jobRow(t, job) {
     job.status === "armed" && job.opens_at
       ? `${status} <span class="muted">— ${esc(t.opens)} ${when(job.opens_at)}</span>`
       : status;
+  // No per-row link: it led to the same page as the button above it, and two
+  // ways to the same place read as two different places.
   return `<tr>
     <td>${job.next_slot ? when(job.next_slot) : `<span class="muted">—</span>`}</td>
     <td>${esc(job.court)}${repeat}</td>
     <td>${esc(job.account)}</td>
     <td>${detail}</td>
-    <td class="actions"><a class="link" href="${SETTINGS_URL}">${esc(t.edit)}</a></td>
   </tr>`;
 }
 

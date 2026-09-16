@@ -117,12 +117,16 @@ def test_the_panel_lists_every_account_rather_than_the_first() -> None:
     assert "t.manage" in source
 
 
-def test_creating_a_job_is_offered_where_the_jobs_are() -> None:
+def test_the_jobs_card_offers_one_way_to_manage_them() -> None:
     """Offered next to the bookings it read as "book a court by hand", which
-    Skedda's own site does better."""
+    Skedda's own site does better. And a link per row led to the same page as
+    the button above it - two ways to one place read as two places."""
     source = PANEL_JS.read_text(encoding="utf-8")
 
     jobs_card = source.split("t.bookingJobs,")[1]
-    assert "addJobShort" in jobs_card
+    assert "manageJobs" in jobs_card
     bookings_card = source.split("t.existingBookings,")[1].split("t.bookingJobs,")[0]
-    assert "addJob" not in bookings_card
+    assert "manageJobs" not in bookings_card
+    # One per account row, one for the jobs card, one for the empty state.
+    assert source.count('href="${SETTINGS_URL}"') == 3
+    assert "t.edit" not in source
