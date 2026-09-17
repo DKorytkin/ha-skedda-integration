@@ -11,7 +11,7 @@ production, instead of as a mock library imagines.
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -23,6 +23,7 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestServer
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.skedda_scheduler.api import endpoints
@@ -233,3 +234,23 @@ def mock_provider() -> Iterator[AsyncMock]:
     provider.client.clock.samples = 6
     with patch("custom_components.skedda_scheduler.SkeddaProvider", return_value=provider):
         yield provider
+
+
+@pytest.fixture
+def extra_account(hass: HomeAssistant) -> Callable[[], Awaitable[MockConfigEntry]]:
+    """A second account at the same venue: another hour a week to spend."""
+
+    async def _add() -> MockConfigEntry:
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={**ENTRY_DATA, CONF_EMAIL: "second@example.com"},
+            title="Second account",
+            unique_id="myclub:second@example.com",
+            entry_id="entry-2",
+        )
+        entry.add_to_hass(hass)
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        return entry
+
+    return _add
