@@ -26,12 +26,13 @@ from .const import (
     CONF_ENABLED,
     CONF_VENUE,
     DOMAIN,
+    ENTRY_KIND_WATCH,
     STATUS_ARMED,
     STATUS_DISABLED,
     STATUS_OUT_OF_SEASON,
     SUBENTRY_TYPE_JOB,
 )
-from .entry_kinds import is_account_entry
+from .entry_kinds import entry_kind, is_account_entry
 from .job_factory import build_job, venue_timezone_for
 
 TYPE_OVERVIEW = f"{DOMAIN}/overview"
@@ -58,8 +59,12 @@ def websocket_overview(
     accounts: list[dict[str, Any]] = []
     jobs: list[dict[str, Any]] = []
     bookings: list[dict[str, Any]] = []
+    watches: list[dict[str, Any]] = []
 
     for entry in hass.config_entries.async_entries(DOMAIN):
+        if entry_kind(entry) == ENTRY_KIND_WATCH and entry.state is ConfigEntryState.LOADED:
+            watches.extend(_watches(entry))
+            continue
         if not is_account_entry(entry):
             # Only an account has a venue, bookings and runtime data. Asking
             # any other kind for them is how this page broke once already.
@@ -79,6 +84,7 @@ def websocket_overview(
             "accounts": accounts,
             "jobs": sorted(jobs, key=lambda job: job["next_slot"] or ""),
             "bookings": sorted(bookings, key=lambda booking: booking["start"]),
+            "watches": watches,
         },
     )
 
@@ -127,6 +133,28 @@ def _jobs(hass: HomeAssistant, entry: ConfigEntry) -> list[dict[str, Any]]:
             }
         )
     return found
+
+
+def _watches(entry: ConfigEntry) -> list[dict[str, Any]]:
+    """One row per watch rule: what it wants, and whether it may act."""
+    runner = entry.runtime_data.watcher
+    interval = runner.interval
+    return [
+        {
+            "rule_id": rule.rule_id,
+            "entry_id": entry.entry_id,
+            "name": rule.name,
+            "enabled": rule.enabled,
+            "days": sorted(rule.weekdays),
+            "hours": f"{rule.not_before:%H:%M}-{rule.not_after:%H:%M}",
+            "mode": rule.mode.value,
+            "book": rule.book,
+            "gate_open": runner.gate_open,
+            "poll_interval_minutes": interval.total_seconds() / 60 if interval else None,
+            "last_catch": runner.last_catch.start.isoformat() if runner.last_catch else None,
+        }
+        for rule in runner.rules
+    ]
 
 
 def _bookings(entry: ConfigEntry) -> list[dict[str, Any]]:
