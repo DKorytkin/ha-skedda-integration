@@ -8,8 +8,8 @@ from homeassistant.core import HomeAssistant
 
 from ..api.errors import SkeddaError
 from ..api.google import GoogleCalendarClient
-from ..core.job import BookingJob
 from ..core.result import BookingOutcome
+from ..core.subject import BookingSubject
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,31 +39,31 @@ class GoogleCalendarSink:
         self._location = location
         self._attendees = attendees
 
-    async def async_handle(self, outcome: BookingOutcome, job: BookingJob) -> None:
+    async def async_handle(self, outcome: BookingOutcome, subject: BookingSubject) -> None:
         if not outcome.succeeded:
             return
         try:
             event = await self._client.create_event(
                 self._calendar_id,
                 summary=self._title,
-                start=outcome.slot_start.astimezone(job.tz),
-                end=outcome.slot_end.astimezone(job.tz),
-                timezone=job.venue_timezone,
+                start=outcome.slot_start.astimezone(subject.tz),
+                end=outcome.slot_end.astimezone(subject.tz),
+                timezone=subject.venue_timezone,
                 location=self._location,
-                description=_description(outcome, job),
+                description=_description(outcome, subject),
                 attendees=self._attendees,
             )
         except SkeddaError as err:
             # The court is booked either way; losing the calendar entry must
             # not look like losing the court.
-            _LOGGER.warning("Booked %s but could not add it to the calendar: %s", job.name, err)
+            _LOGGER.warning("Booked %s but could not add it to the calendar: %s", subject.name, err)
             return
-        _LOGGER.debug("Added %s to the calendar as %s", job.name, event.id)
+        _LOGGER.debug("Added %s to the calendar as %s", subject.name, event.id)
 
 
-def _description(outcome: BookingOutcome, job: BookingJob) -> str:
+def _description(outcome: BookingOutcome, subject: BookingSubject) -> str:
     """Enough to find the booking again, and nothing anybody has to read."""
-    lines = [job.name]
+    lines = [subject.name]
     if outcome.booking_id:
         lines.append(f"Skedda booking {outcome.booking_id}")
     return "\n".join(lines)

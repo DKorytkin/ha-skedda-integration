@@ -8,8 +8,8 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from ..core.job import BookingJob
 from ..core.result import BookingOutcome
+from ..core.subject import BookingSubject
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -19,26 +19,26 @@ NOTIFY_DOMAIN = "notify"
 SERVICE_SEND_MESSAGE = "send_message"
 
 
-def build_message(outcome: BookingOutcome, job: BookingJob) -> str:
+def build_message(outcome: BookingOutcome, subject: BookingSubject) -> str:
     """One line describing the run, in the venue's own time.
 
     Not Home Assistant's local time: the court is booked for 18:00 *there*,
     and a user whose home is in another zone would otherwise be told a time
     the booking was never for.
     """
-    when = outcome.slot_start.astimezone(job.tz).strftime("%a %d %b %H:%M")
+    when = outcome.slot_start.astimezone(subject.tz).strftime("%a %d %b %H:%M")
     if outcome.succeeded:
-        return f"Booked: {job.name} - {when} (booking {outcome.booking_id})"
-    return f"Booking failed: {job.name} - {when} ({outcome.failure_reason})"
+        return f"Booked: {subject.name} - {when} (booking {outcome.booking_id})"
+    return f"Booking failed: {subject.name} - {when} ({outcome.failure_reason})"
 
 
 class NotifySink:
-    """Calls each of the job's notify services with the result."""
+    """Calls each of the subject's notify services with the result."""
 
     def __init__(self, hass: HomeAssistant) -> None:
         self._hass = hass
 
-    async def async_handle(self, outcome: BookingOutcome, job: BookingJob) -> None:
+    async def async_handle(self, outcome: BookingOutcome, subject: BookingSubject) -> None:
         if not outcome.attempts:
             # Nothing was sent to Skedda, so nothing happened worth a buzz: the
             # slot was already ours, or the season is over. Arming a job of
@@ -46,12 +46,12 @@ class NotifySink:
             # notifications worth turning off.
             _LOGGER.debug(
                 "Job %s finished without an attempt (%s); not notifying",
-                job.job_id,
+                subject.subject_id,
                 outcome.failure_reason,
             )
             return
-        message = build_message(outcome, job)
-        for target in job.notify_targets:
+        message = build_message(outcome, subject)
+        for target in subject.notify_targets:
             domain, _, service = target.partition(".")
             if not service:
                 _LOGGER.warning("Ignoring malformed notify target %s", target)
@@ -65,7 +65,7 @@ class NotifySink:
                 # notification on the others - this is how they learn anything
                 # happened at all.
                 _LOGGER.warning(
-                    "Could not notify %s about job %s", target, job.job_id, exc_info=True
+                    "Could not notify %s about job %s", target, subject.subject_id, exc_info=True
                 )
 
     def _call_for(

@@ -57,6 +57,10 @@ class BookingJob:
             ) from err
 
     @property
+    def subject_id(self) -> str:
+        return self.job_id
+
+    @property
     def tz(self) -> ZoneInfo:
         # ZoneInfo caches instances internally, so this is cheap to recompute
         # and keeps the dataclass frozen and hashable.
