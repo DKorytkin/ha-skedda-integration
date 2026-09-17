@@ -10,8 +10,9 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import SIGNAL_CONFIG_ENTRY_CHANGED, ConfigEntry, ConfigEntryChange
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.util import dt as dt_util
 
 from .api.errors import SkeddaError
@@ -19,12 +20,23 @@ from .const import CONF_VENUE, DEFAULT_WINDOW_DAYS, DOMAIN, SUBENTRY_TYPE_WATCH_
 from .coordinator import SkeddaData
 from .core.provider import Booking, BookingRequest
 from .core.result import AttemptStatus, BookingAttempt, BookingOutcome
-from .core.watch import Catch, WatchRule, candidates, evaluate, has_capacity, interval_for
+from .core.watch import (
+    Catch,
+    WatchRule,
+    candidates,
+    evaluate,
+    has_capacity,
+    interval_for,
+    week_of,
+)
 from .entry_kinds import is_account_entry
 from .sinks import async_dispatch
 from .watch_factory import build_rule
 
 _LOGGER = logging.getLogger(__name__)
+
+#: How many occurrences of one job to walk when reserving its weeks.
+_OCCURRENCE_LIMIT = 8
 
 
 def _nearest_start(
@@ -51,6 +63,10 @@ class WatchRunner:
         #: How often this watch is asking the reader to poll, None when idle.
         self.interval: timedelta | None = None
         self._listeners: list[CALLBACK_TYPE] = []
+        #: Unsubscribes from the account coordinators we follow.
+        self._coordinators: list[CALLBACK_TYPE] = []
+        #: Unsubscribes that live as long as the entry does.
+        self._following: list[CALLBACK_TYPE] = []
 
     @callback
     def async_add_listener(self, listener: CALLBACK_TYPE) -> CALLBACK_TYPE:
@@ -102,6 +118,57 @@ class WatchRunner:
             key=lambda entry: entry.entry_id,
         )
 
+    async def async_start(self) -> None:
+        """Follow the accounts' polls, and look once now.
+
+        The watch has no clock of its own: every scan happens because an
+        account's coordinator brought back a fresh view of the venue. An
+        account that loads or reloads later builds a new coordinator, so this
+        also listens for that rather than assuming the accounts it can see now
+        are the accounts it will have.
+        """
+        self._following.append(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_CONFIG_ENTRY_CHANGED, self._async_entries_changed
+            )
+        )
+        self._follow_accounts()
+        await self.async_scan()
+
+    @callback
+    def _async_entries_changed(self, change: ConfigEntryChange, entry: ConfigEntry) -> None:
+        if entry.domain == DOMAIN and is_account_entry(entry):
+            self._follow_accounts()
+
+    @callback
+    def _follow_accounts(self) -> None:
+        """Subscribe to every account's coordinator, dropping stale ones.
+
+        Re-run on each scan: an account that reloads builds a new coordinator,
+        and a listener left on the old one would never fire again.
+        """
+        for unsub in self._coordinators:
+            unsub()
+        self._coordinators = [
+            entry.runtime_data.coordinator.async_add_listener(self._async_scan_soon)
+            for entry in self.accounts()
+        ]
+
+    @callback
+    def _async_scan_soon(self) -> None:
+        """A poll landed; look at what it brought back."""
+        self.entry.async_create_background_task(
+            self.hass, self._async_scan_quietly(), name="skedda watch scan"
+        )
+
+    async def _async_scan_quietly(self) -> None:
+        try:
+            await self.async_scan()
+        except SkeddaError as err:
+            # A scan is a background task: an exception here would be logged
+            # as "Task exception was never retrieved" and nothing else.
+            _LOGGER.warning("Watch scan failed: %s", err)
+
     async def async_refresh_and_scan(self) -> Catch | None:
         """Re-read the venue first, because something outside says to look."""
         accounts = self.accounts()
@@ -118,6 +185,7 @@ class WatchRunner:
             self._note_interval(accounts, None)
             return None
 
+        self._follow_accounts()
         data = accounts[0].runtime_data.coordinator.data
         if data is None:
             return None
@@ -125,7 +193,8 @@ class WatchRunner:
         now = dt_util.utcnow()
         horizon = now + timedelta(days=data.rules.max_days_ahead or DEFAULT_WINDOW_DAYS)
         ours = {entry.entry_id: self._mine(entry) for entry in accounts}
-        self.gate_open = has_capacity(ours, data.rules.weekly_quota_minutes, now, horizon)
+        reserved = {entry.entry_id: self._aimed_weeks(entry, now, horizon) for entry in accounts}
+        self.gate_open = has_capacity(ours, data.rules.weekly_quota_minutes, now, horizon, reserved)
         self._apply_interval(rules, data, now, horizon)
         if not self.gate_open:
             return None
@@ -139,6 +208,7 @@ class WatchRunner:
             now,
             horizon,
             data.rules.slot_minutes,
+            reserved,
         )
         if catch is None:
             return None
@@ -220,6 +290,37 @@ class WatchRunner:
         )
         await async_dispatch(self.entry.runtime_data.sinks, outcome, rule)
 
+    def _aimed_weeks(
+        self, entry: ConfigEntry, now: datetime, horizon_end: datetime
+    ) -> set[tuple[int, int]]:
+        """Weeks this account's booking jobs plan to use.
+
+        Every occurrence inside the horizon, not merely the armed one: a
+        weekly job arms one week at a time, and a watch that spent the weeks
+        it had not reached yet would leave it failing on quota for ever after.
+        The court we planned for beats the one we stumbled on.
+        """
+        scheduler = entry.runtime_data.scheduler
+        if scheduler is None:
+            return set()
+        weeks: set[tuple[int, int]] = set()
+        for runner in scheduler.runners.values():
+            if not runner.job.enabled:
+                continue
+            moment = now
+            # A season is finite and the horizon is a fortnight; the bound is
+            # only a guard against a rule that yields dates for ever.
+            for _ in range(_OCCURRENCE_LIMIT):
+                slot = runner.job.next_slot(moment)
+                if slot is None or slot[0] > horizon_end:
+                    break
+                # A slot the job has already fired at and lost is no longer
+                # spoken for - and is exactly the week a watch exists for.
+                if runner.attempted_slot != slot[0]:
+                    weeks.add(week_of(slot[0]))
+                moment = slot[0]
+        return weeks
+
     def _mine(self, entry: ConfigEntry) -> list[Booking]:
         data = entry.runtime_data.coordinator.data
         return [booking for booking in data.bookings if booking.is_mine] if data else []
@@ -234,5 +335,9 @@ class WatchRunner:
 
     @callback
     def async_shutdown(self) -> None:
-        """The watch holds no timer and no session; only its listeners."""
+        """The watch holds no timer and no session; only its subscriptions."""
+        for unsub in (*self._coordinators, *self._following):
+            unsub()
+        self._coordinators.clear()
+        self._following.clear()
         self._listeners.clear()

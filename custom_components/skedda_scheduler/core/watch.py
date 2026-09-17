@@ -8,7 +8,7 @@ testable as a table of cases.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
@@ -101,19 +101,29 @@ def accounts_with_quota(
     used: Mapping[str, Sequence[Booking]],
     quota_minutes: int | None,
     week: tuple[int, int],
+    reserved: Mapping[str, Collection[tuple[int, int]]] | None = None,
 ) -> tuple[str, ...]:
     """Which accounts may still book something in this week.
 
-    None means the venue caps nothing; 0 means nobody may book at all. Reading
-    one as the other is the difference between doing nothing for ever and
-    ignoring the venue's rule.
+    `reserved` names the weeks an account has a booking job aiming at. That
+    hour is already spoken for: spending it on a freed slot would leave the job
+    to fail on quota, which is losing the court we planned for to one we merely
+    stumbled on.
+
+    None quota means the venue caps nothing; 0 means nobody may book at all.
+    Reading one as the other is the difference between doing nothing for ever
+    and ignoring the venue's rule.
     """
     if quota_minutes == 0:
         return ()
-    if quota_minutes is None:
-        return tuple(used)
+    reserved = reserved or {}
     free: list[str] = []
     for account, bookings in used.items():
+        if week in reserved.get(account, ()):
+            continue
+        if quota_minutes is None:
+            free.append(account)
+            continue
         spent = sum(
             int((booking.end - booking.start).total_seconds() // 60)
             for booking in bookings
@@ -197,6 +207,7 @@ def has_capacity(
     quota_minutes: int | None,
     now: datetime,
     horizon_end: datetime,
+    reserved: Mapping[str, Collection[tuple[int, int]]] | None = None,
 ) -> bool:
     """Whether any account may still book anything inside the horizon.
 
@@ -285,6 +296,7 @@ def evaluate(
     now: datetime,
     horizon_end: datetime,
     slot_minutes: int,
+    reserved: Mapping[str, Collection[tuple[int, int]]] | None = None,
 ) -> Catch | None:
     """The one slot worth taking now, or None.
 
@@ -308,7 +320,7 @@ def evaluate(
                     continue
             elif rule.mode is WatchMode.NEIGHBOUR:
                 continue
-            free = accounts_with_quota(ours, quota_minutes, week_of(candidate.start))
+            free = accounts_with_quota(ours, quota_minutes, week_of(candidate.start), reserved)
             if not free:
                 continue
             order = (
