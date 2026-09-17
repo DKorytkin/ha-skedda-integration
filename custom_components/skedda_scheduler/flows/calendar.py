@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
@@ -23,6 +24,8 @@ from ..const import (
 
 if TYPE_CHECKING:
     from ..config_flow import SkeddaConfigFlow
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def settings_schema(calendars: list[tuple[str, str]], defaults: dict[str, Any]) -> vol.Schema:
@@ -87,9 +90,12 @@ async def async_calendar_step(
 
     try:
         calendars = await client.list_calendars()
-    except SkeddaError:
+    except SkeddaError as err:
         # Nothing to choose from means nothing to save; saying so beats an
-        # empty dropdown the user cannot get past.
+        # empty dropdown the user cannot get past. The reason goes to the log
+        # because the dialog has nowhere to put it, and without it the abort
+        # is indistinguishable from every other way this can fail.
+        _LOGGER.warning("Could not list the Google calendars: %s", err)
         return flow.async_abort(reason="calendar_list_failed")
 
     if not calendars:
