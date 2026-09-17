@@ -11,10 +11,13 @@ import pytest
 from custom_components.skedda_scheduler.core.provider import Booking
 from custom_components.skedda_scheduler.core.watch import (
     Candidate,
+    Catch,
     WatchMode,
     WatchRule,
     accounts_with_quota,
     candidates,
+    evaluate,
+    has_capacity,
     is_free,
     week_of,
 )
@@ -197,3 +200,245 @@ def test_a_booking_that_ends_exactly_when_the_slot_starts_does_not_block_it() ->
     )
 
     assert is_free(candidate, [booking(1, 19)])
+
+
+ALL_SPACES = ["court-1", "court-2"]
+
+
+def every_day(**overrides: Any) -> WatchRule:
+    """A rule that does not filter by weekday, so a case can pick its own day."""
+    return rule(weekdays=frozenset(range(7)), **overrides)
+
+
+def test_the_gate_is_shut_when_every_account_has_spent_every_week() -> None:
+    """Both weeks booked means no looking at all - the whole economy."""
+    ours = {"acc-a": [booking(1, 20), booking(8, 20), booking(15, 20)]}
+
+    assert not has_capacity(ours, 60, NOW, datetime(2026, 10, 15, 23, tzinfo=KYIV))
+
+
+def test_the_gate_is_open_while_one_week_is_still_free() -> None:
+    ours = {"acc-a": [booking(1, 20)]}
+
+    assert has_capacity(ours, 60, NOW, HORIZON)
+
+
+def test_a_day_where_we_hold_nothing_is_taken_by_the_window_rule() -> None:
+    caught = evaluate([every_day()], {"acc-a": []}, [], 60, ALL_SPACES, NOW, HORIZON, 60)
+
+    assert caught is not None
+    assert caught.account_id == "acc-a"
+    assert not caught.neighbour
+
+
+def test_the_hour_before_ours_is_a_neighbour() -> None:
+    ours = {"acc-a": [booking(1, 20)], "acc-b": []}
+
+    caught = evaluate([every_day()], ours, [booking(1, 20)], 60, ALL_SPACES, NOW, HORIZON, 60)
+
+    assert caught == Catch(
+        rule_id="r1",
+        space_id="court-1",
+        start=datetime(2026, 10, 1, 19, tzinfo=KYIV),
+        end=datetime(2026, 10, 1, 20, tzinfo=KYIV),
+        account_id="acc-b",
+        neighbour=True,
+    )
+
+
+def test_the_hour_after_ours_is_a_neighbour_too() -> None:
+    ours = {"acc-a": [booking(1, 19)], "acc-b": []}
+
+    caught = evaluate([every_day()], ours, [booking(1, 19)], 60, ALL_SPACES, NOW, HORIZON, 60)
+
+    assert caught is not None
+    assert caught.neighbour
+    assert caught.start == datetime(2026, 10, 1, 20, tzinfo=KYIV)
+
+
+def test_a_block_already_at_the_cap_rejects_a_further_neighbour() -> None:
+    """Three hours is the limit, so a fourth is not wanted at any price."""
+    ours = {
+        "acc-a": [booking(1, 19)],
+        "acc-b": [booking(1, 20)],
+        "acc-c": [booking(1, 21)],
+        "acc-d": [],
+    }
+    everyone = [booking(1, 19), booking(1, 20), booking(1, 21)]
+
+    caught = evaluate(
+        [every_day(not_before=time(17, 0), not_after=time(23, 0), mode=WatchMode.NEIGHBOUR)],
+        ours,
+        everyone,
+        60,
+        ALL_SPACES,
+        NOW,
+        HORIZON,
+        60,
+    )
+
+    assert caught is None
+
+
+def test_a_block_below_the_cap_still_grows() -> None:
+    ours = {"acc-a": [booking(1, 19)], "acc-b": [booking(1, 20)], "acc-c": []}
+    everyone = [booking(1, 19), booking(1, 20)]
+
+    caught = evaluate(
+        [every_day(not_before=time(17, 0), not_after=time(23, 0), mode=WatchMode.NEIGHBOUR)],
+        ours,
+        everyone,
+        60,
+        ALL_SPACES,
+        NOW,
+        HORIZON,
+        60,
+    )
+
+    assert caught is not None
+    assert caught.start in {
+        datetime(2026, 10, 1, 18, tzinfo=KYIV),
+        datetime(2026, 10, 1, 21, tzinfo=KYIV),
+    }
+
+
+def test_neighbour_mode_ignores_a_day_where_we_hold_nothing() -> None:
+    caught = evaluate(
+        [every_day(mode=WatchMode.NEIGHBOUR)], {"acc-a": []}, [], 60, ALL_SPACES, NOW, HORIZON, 60
+    )
+
+    assert caught is None
+
+
+def test_window_mode_ignores_a_day_where_we_already_hold_something() -> None:
+    """Only the empty day is the window rule's business."""
+    ours = {"acc-a": [booking(1, 20)], "acc-b": []}
+    only_thursday = rule(weekdays=frozenset({3}), mode=WatchMode.WINDOW)
+
+    caught = evaluate(
+        [only_thursday],
+        ours,
+        [booking(1, 20)],
+        60,
+        ALL_SPACES,
+        NOW,
+        datetime(2026, 10, 2, tzinfo=KYIV),
+        60,
+    )
+
+    assert caught is None
+
+
+def test_a_neighbour_beats_a_lone_hour_on_another_day() -> None:
+    """Growing the block is worth more than a court by itself."""
+    ours = {"acc-a": [booking(1, 20)], "acc-b": []}
+
+    caught = evaluate([every_day()], ours, [booking(1, 20)], 60, ALL_SPACES, NOW, HORIZON, 60)
+
+    assert caught is not None and caught.neighbour
+
+
+def test_a_neighbour_on_another_court_needs_permission() -> None:
+    ours = {"acc-a": [booking(1, 20, space="court-1")], "acc-b": []}
+    everyone = [booking(1, 20, space="court-1"), booking(1, 19, space="court-1")]
+    strict = every_day(space_ids=(), mode=WatchMode.NEIGHBOUR)
+    permissive = every_day(space_ids=(), mode=WatchMode.NEIGHBOUR, allow_other_court=True)
+
+    one_day = datetime(2026, 10, 2, tzinfo=KYIV)
+
+    assert evaluate([strict], ours, everyone, 60, ALL_SPACES, NOW, one_day, 60) is None
+    caught = evaluate([permissive], ours, everyone, 60, ALL_SPACES, NOW, one_day, 60)
+    assert caught is not None and caught.space_id == "court-2"
+
+
+def test_the_account_holding_the_block_is_not_asked_to_pay_twice() -> None:
+    """One player keeps one block, and their hour this week is already spent."""
+    ours = {"acc-a": [booking(1, 20)], "acc-b": []}
+
+    caught = evaluate([every_day()], ours, [booking(1, 20)], 60, ALL_SPACES, NOW, HORIZON, 60)
+
+    assert caught is not None and caught.account_id == "acc-b"
+
+
+def test_nothing_is_taken_when_that_week_has_no_quota_left() -> None:
+    ours = {"acc-a": [booking(1, 20)]}
+    only_thursday = rule(weekdays=frozenset({3}))
+
+    caught = evaluate(
+        [only_thursday],
+        ours,
+        [booking(1, 20)],
+        60,
+        ALL_SPACES,
+        NOW,
+        datetime(2026, 10, 2, tzinfo=KYIV),
+        60,
+    )
+
+    assert caught is None
+
+
+def test_a_disabled_rule_is_not_consulted() -> None:
+    assert (
+        evaluate([every_day(enabled=False)], {"acc-a": []}, [], 60, ALL_SPACES, NOW, HORIZON, 60)
+        is None
+    )
+
+
+def test_the_slot_nearest_the_middle_of_the_window_wins() -> None:
+    """The edges of a wide window are what nobody asked for.
+
+    Two equally central slots tie, and the tie breaks on the earlier start, so
+    a group that wants one of them exactly should narrow the hours.
+    """
+    caught = evaluate(
+        [every_day(not_before=time(18, 0), not_after=time(22, 0))],
+        {"acc-a": []},
+        [],
+        60,
+        ALL_SPACES,
+        NOW,
+        HORIZON,
+        60,
+    )
+
+    assert caught is not None and caught.start.hour in {19, 20}
+
+
+def test_the_courts_are_tried_in_the_order_the_rule_lists_them() -> None:
+    caught = evaluate(
+        [every_day(space_ids=("court-2", "court-1"))],
+        {"acc-a": []},
+        [],
+        60,
+        ALL_SPACES,
+        NOW,
+        HORIZON,
+        60,
+    )
+
+    assert caught is not None and caught.space_id == "court-2"
+
+
+def test_a_taken_slot_is_never_chosen() -> None:
+    theirs = Booking(
+        id="theirs",
+        space_ids=("court-1",),
+        start=datetime(2026, 10, 1, 20, tzinfo=KYIV),
+        end=datetime(2026, 10, 1, 21, tzinfo=KYIV),
+        title="",
+        is_mine=False,
+    )
+
+    caught = evaluate(
+        [every_day(space_ids=("court-1",), not_before=time(20, 0), not_after=time(21, 0))],
+        {"acc-a": []},
+        [theirs],
+        60,
+        ALL_SPACES,
+        NOW,
+        datetime(2026, 10, 2, tzinfo=KYIV),
+        60,
+    )
+
+    assert caught is None

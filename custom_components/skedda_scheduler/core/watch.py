@@ -178,3 +178,155 @@ def is_free(candidate: Candidate, bookings: Sequence[Booking]) -> bool:
         and candidate.start < booking.end
         for booking in bookings
     )
+
+
+@dataclass(frozen=True, slots=True)
+class Catch:
+    """One slot to take, and the account to take it with."""
+
+    rule_id: str
+    space_id: str
+    start: datetime
+    end: datetime
+    account_id: str
+    neighbour: bool
+
+
+def has_capacity(
+    ours: Mapping[str, Sequence[Booking]],
+    quota_minutes: int | None,
+    now: datetime,
+    horizon_end: datetime,
+) -> bool:
+    """Whether any account may still book anything inside the horizon.
+
+    False means the watcher does nothing at all - no polling, no candidates -
+    until the horizon rolls forward or something is cancelled. That is the
+    economy that makes watching affordable.
+    """
+    return any(
+        accounts_with_quota(ours, quota_minutes, week) for week in _weeks_between(now, horizon_end)
+    )
+
+
+def _weeks_between(start: datetime, end: datetime) -> set[tuple[int, int]]:
+    weeks: set[tuple[int, int]] = set()
+    day = start
+    while day <= end:
+        weeks.add(week_of(day))
+        day += timedelta(days=1)
+    weeks.add(week_of(end))
+    return weeks
+
+
+def _ours_on(day: date, ours: Mapping[str, Sequence[Booking]]) -> list[Booking]:
+    return [
+        booking for bookings in ours.values() for booking in bookings if booking.start.date() == day
+    ]
+
+
+def _block_minutes(candidate: Candidate, mine: Sequence[Booking]) -> int:
+    """How long the contiguous run containing this candidate would be.
+
+    Walks outward through bookings that touch it, so two separate blocks on
+    one day are measured separately rather than added together.
+    """
+    total = int((candidate.end - candidate.start).total_seconds() // 60)
+    start, end = candidate.start, candidate.end
+    counted: set[str] = set()
+    growing = True
+    while growing:
+        growing = False
+        for booking in mine:
+            if booking.id in counted:
+                continue
+            if booking.end == start or booking.start == end:
+                total += int((booking.end - booking.start).total_seconds() // 60)
+                start = min(start, booking.start)
+                end = max(end, booking.end)
+                counted.add(booking.id)
+                growing = True
+    return total
+
+
+def _is_neighbour(candidate: Candidate, rule: WatchRule, mine: Sequence[Booking]) -> bool:
+    return any(
+        (booking.end == candidate.start or booking.start == candidate.end)
+        and (rule.allow_other_court or candidate.space_id in booking.space_ids)
+        for booking in mine
+    )
+
+
+def _minutes(value: time) -> int:
+    return value.hour * 60 + value.minute
+
+
+def _distance_from_middle(candidate: Candidate, rule: WatchRule) -> int:
+    """Minutes from the centre of the rule's hours.
+
+    The centre is what the group actually wants: a rule reading 19:00-21:00
+    was written by somebody who plays at 20:00.
+    """
+    middle = (_minutes(rule.not_before) + _minutes(rule.not_after) - rule.duration_minutes) // 2
+    return abs(_minutes(candidate.start.time()) - middle)
+
+
+def _space_rank(space_id: str, rule: WatchRule, spaces: Sequence[str]) -> int:
+    order = rule.space_ids or tuple(spaces)
+    return order.index(space_id) if space_id in order else len(order)
+
+
+def evaluate(
+    rules: Sequence[WatchRule],
+    ours: Mapping[str, Sequence[Booking]],
+    everyone: Sequence[Booking],
+    quota_minutes: int | None,
+    spaces: Sequence[str],
+    now: datetime,
+    horizon_end: datetime,
+    slot_minutes: int,
+) -> Catch | None:
+    """The one slot worth taking now, or None.
+
+    One catch per pass: booking spends an account's hour and changes the
+    block, so the next decision has to be made against the world as it then
+    is rather than against this snapshot.
+    """
+    best: tuple[tuple[int, int, int, datetime], Catch] | None = None
+    for rule in rules:
+        if not rule.enabled:
+            continue
+        for candidate in candidates(rule, spaces, now, horizon_end, slot_minutes):
+            if not is_free(candidate, everyone):
+                continue
+            mine_today = _ours_on(candidate.start.date(), ours)
+            neighbour = _is_neighbour(candidate, rule, mine_today)
+            if mine_today:
+                if rule.mode is WatchMode.WINDOW or not neighbour:
+                    continue
+                if _block_minutes(candidate, mine_today) > rule.max_block_minutes:
+                    continue
+            elif rule.mode is WatchMode.NEIGHBOUR:
+                continue
+            free = accounts_with_quota(ours, quota_minutes, week_of(candidate.start))
+            if not free:
+                continue
+            order = (
+                0 if neighbour else 1,
+                _distance_from_middle(candidate, rule),
+                _space_rank(candidate.space_id, rule, spaces),
+                candidate.start,
+            )
+            if best is None or order < best[0]:
+                best = (
+                    order,
+                    Catch(
+                        rule_id=rule.rule_id,
+                        space_id=candidate.space_id,
+                        start=candidate.start,
+                        end=candidate.end,
+                        account_id=free[0],
+                        neighbour=neighbour,
+                    ),
+                )
+    return best[1] if best else None
