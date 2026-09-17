@@ -41,9 +41,12 @@ from .const import (
     DOMAIN,
     ENTRY_KIND_ACCOUNT,
     ENTRY_KIND_CALENDAR,
+    ENTRY_KIND_WATCH,
     SUBENTRY_TYPE_JOB,
+    SUBENTRY_TYPE_WATCH_RULE,
 )
 from .core.provider import VenueRules
+from .entry_kinds import entry_kind
 
 # Imported as a module, not by name: validate_credentials is the seam the
 # flow's tests patch, and a from-import would bind it here at import time.
@@ -51,6 +54,7 @@ from .flows import account
 from .flows.account import STEP_REAUTH_SCHEMA, STEP_USER_SCHEMA, normalise, unique_id_for
 from .flows.calendar import async_calendar_step
 from .flows.job import JobSubentryFlowHandler
+from .flows.watch import WatchRuleSubentryFlowHandler, async_watch_step
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -86,11 +90,17 @@ class SkeddaConfigFlow(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, domai
         cls, config_entry: ConfigEntry
     ) -> dict[str, type[ConfigSubentryFlow]]:
         """Booking jobs are subentries: many per account, added after setup."""
+        if entry_kind(config_entry) == ENTRY_KIND_WATCH:
+            return {SUBENTRY_TYPE_WATCH_RULE: WatchRuleSubentryFlowHandler}
         return {SUBENTRY_TYPE_JOB: JobSubentryFlowHandler}
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Ask which of the two things is being added."""
-        return self.async_show_menu(step_id="user", menu_options=["account", "calendar"])
+        """Ask which of the three things is being added."""
+        return self.async_show_menu(step_id="user", menu_options=["account", "calendar", "watch"])
+
+    async def async_step_watch(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Start watching this venue for slots other people give up."""
+        return async_watch_step(self)
 
     async def async_step_calendar(
         self, user_input: dict[str, Any] | None = None

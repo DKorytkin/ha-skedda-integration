@@ -3,10 +3,11 @@
     "step": {
       "user": {
         "title": "What are you adding?",
-        "description": "An account to book with, or the calendar your bookings should appear in.",
+        "description": "An account to book with, the calendar your bookings should appear in, or a watch for slots other people give up.",
         "menu_options": {
           "account": "Skedda account",
-          "calendar": "Google Calendar"
+          "calendar": "Google Calendar",
+          "watch": "Slot watch"
         }
       },
       "account": {
@@ -72,7 +73,8 @@
       "reauth_successful": "Signed in again.",
       "reconfigure_successful": "The account was updated.",
       "calendar_list_failed": "Google could not be asked which calendars you have. Try again in a moment.",
-      "no_writable_calendar": "This Google account has no calendar you can write to."
+      "no_writable_calendar": "This Google account has no calendar you can write to.",
+      "no_account": "Add a Skedda account first: the watch needs a venue to watch and an account to book with."
     }
   },
   "config_subentries": {
@@ -151,6 +153,83 @@
       },
       "abort": {
         "reconfigure_successful": "The booking job was updated."
+      }
+    },
+    "watch_rule": {
+      "title": "Watch rule",
+      "step": {
+        "user": {
+          "title": "Watch for a freed slot",
+          "description": "Take a court somebody gives up, if it fits these rules. Whichever account still has quota that week pays for it.",
+          "data": {
+            "name": "Name",
+            "weekdays": "Days",
+            "not_before": "Not before",
+            "not_after": "Not after",
+            "space_ids": "Courts",
+            "duration_minutes": "Duration",
+            "mode": "What counts as a catch",
+            "max_block_minutes": "Most hours in a row",
+            "allow_other_court": "A neighbour may be on another court",
+            "min_lead_minutes": "Ignore slots starting sooner than",
+            "speed": "How often to look",
+            "book": "Book it",
+            "season_end": "Watch until",
+            "notify_targets": "Tell these services"
+          },
+          "data_description": {
+            "weekdays": "Only these days are watched. Everything else is ignored.",
+            "not_before": "A slot must start at or after this time.",
+            "not_after": "A slot must end at or before this time.",
+            "space_ids": "Leave empty for any court. The order is the order they are tried in.",
+            "mode": "Next to ours grows a block; the free-slot rule only applies on a day we hold nothing.",
+            "max_block_minutes": "A catch is refused if it would make a longer run than this.",
+            "min_lead_minutes": "A court starting in an hour cannot be filled with people.",
+            "speed": "Looking more often costs the venue more requests. Watching stops entirely when no account has quota left.",
+            "book": "Turn off to be told about the slot and take it yourself.",
+            "season_end": "Empty means no end."
+          }
+        },
+        "reconfigure": {
+          "title": "Watch for a freed slot",
+          "description": "Take a court somebody gives up, if it fits these rules. Whichever account still has quota that week pays for it.",
+          "data": {
+            "name": "Name",
+            "weekdays": "Days",
+            "not_before": "Not before",
+            "not_after": "Not after",
+            "space_ids": "Courts",
+            "duration_minutes": "Duration",
+            "mode": "What counts as a catch",
+            "max_block_minutes": "Most hours in a row",
+            "allow_other_court": "A neighbour may be on another court",
+            "min_lead_minutes": "Ignore slots starting sooner than",
+            "speed": "How often to look",
+            "book": "Book it",
+            "season_end": "Watch until",
+            "notify_targets": "Tell these services"
+          },
+          "data_description": {
+            "weekdays": "Only these days are watched. Everything else is ignored.",
+            "not_before": "A slot must start at or after this time.",
+            "not_after": "A slot must end at or before this time.",
+            "space_ids": "Leave empty for any court. The order is the order they are tried in.",
+            "mode": "Next to ours grows a block; the free-slot rule only applies on a day we hold nothing.",
+            "max_block_minutes": "A catch is refused if it would make a longer run than this.",
+            "min_lead_minutes": "A court starting in an hour cannot be filled with people.",
+            "speed": "Looking more often costs the venue more requests. Watching stops entirely when no account has quota left.",
+            "book": "Turn off to be told about the slot and take it yourself.",
+            "season_end": "Empty means no end."
+          }
+        }
+      },
+      "entry_type": "Watch rule",
+      "initiate_flow": {
+        "user": "Add a watch rule",
+        "reconfigure": "Edit the rule"
+      },
+      "abort": {
+        "reconfigure_successful": "The rule was updated."
       }
     }
   },
