@@ -248,6 +248,14 @@
           "disabled": "Вимкнено",
           "out_of_season": "Поза сезоном"
         }
+      },
+      "watch": {
+        "name": "Полювання",
+        "state": {
+          "watching": "Стежить",
+          "disabled": "Вимкнено",
+          "no_quota": "Квота вичерпана"
+        }
       }
     },
     "binary_sensor": {
@@ -258,6 +266,9 @@
     "switch": {
       "job_enabled": {
         "name": "Завдання увімкнено"
+      },
+      "rule_enabled": {
+        "name": "Правило увімкнено"
       }
     },
     "button": {

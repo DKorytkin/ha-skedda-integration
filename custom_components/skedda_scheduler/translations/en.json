@@ -248,6 +248,14 @@
           "disabled": "Turned off",
           "out_of_season": "Out of season"
         }
+      },
+      "watch": {
+        "name": "Watch",
+        "state": {
+          "watching": "Watching",
+          "disabled": "Turned off",
+          "no_quota": "No quota left"
+        }
       }
     },
     "binary_sensor": {
@@ -258,6 +266,9 @@
     "switch": {
       "job_enabled": {
         "name": "Job enabled"
+      },
+      "rule_enabled": {
+        "name": "Rule enabled"
       }
     },
     "button": {

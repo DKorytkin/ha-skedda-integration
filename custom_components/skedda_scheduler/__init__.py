@@ -40,6 +40,10 @@ PLATFORMS: list[Platform] = [
     Platform.SWITCH,
 ]
 
+#: The watch has no binary sensor, button or calendar: it is rules, not an
+#: account, and the only things worth showing are what each rule is doing.
+WATCH_PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.SWITCH]
+
 
 @dataclass
 class SkeddaRuntimeData:
@@ -69,6 +73,8 @@ class WatchRuntimeData:
 
 
 type SkeddaConfigEntry = ConfigEntry[SkeddaRuntimeData]
+#: The same domain, a different payload: the watch has no coordinator.
+type WatchConfigEntry = ConfigEntry[WatchRuntimeData]
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -94,6 +100,7 @@ async def _async_setup_watch(hass: HomeAssistant, entry: SkeddaConfigEntry) -> b
         watcher=runner, sinks=await async_build_job_sinks(hass)
     )
     entry.async_on_unload(runner.async_shutdown)
+    await hass.config_entries.async_forward_entry_setups(entry, WATCH_PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 
@@ -171,8 +178,10 @@ async def _async_setup_account(hass: HomeAssistant, entry: SkeddaConfigEntry) ->
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bool:
+    if entry_kind(entry) == ENTRY_KIND_WATCH:
+        return await hass.config_entries.async_unload_platforms(entry, WATCH_PLATFORMS)
     if not is_account_entry(entry):
-        # Neither the calendar nor the watch owns a platform to unload.
+        # The calendar owns no platform to unload.
         return True
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 

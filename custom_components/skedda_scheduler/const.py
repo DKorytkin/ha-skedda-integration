@@ -65,6 +65,12 @@ STATUS_ARMED: Final = "armed"
 STATUS_DISABLED: Final = "disabled"
 STATUS_OUT_OF_SEASON: Final = "out_of_season"
 
+#: Why a watch rule is not about to catch anything. "No quota" is the ordinary
+#: resting state at a venue with a weekly allowance, not a fault.
+WATCH_STATUS_WATCHING: Final = "watching"
+WATCH_STATUS_DISABLED: Final = "disabled"
+WATCH_STATUS_NO_QUOTA: Final = "no_quota"
+
 #: Venues commonly cap a member's weekly allowance at an hour - the venue this
 #: was built against allows exactly 60 minutes per week (quotaRules in the
 #: contract doc). The job form raises it where the venue allows more.

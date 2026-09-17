@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.util import dt as dt_util
 
 from .api.errors import SkeddaError
@@ -50,6 +50,23 @@ class WatchRunner:
         self.last_catch: Catch | None = None
         #: How often this watch is asking the reader to poll, None when idle.
         self.interval: timedelta | None = None
+        self._listeners: list[CALLBACK_TYPE] = []
+
+    @callback
+    def async_add_listener(self, listener: CALLBACK_TYPE) -> CALLBACK_TYPE:
+        """Entities read this runner rather than a coordinator of their own."""
+        self._listeners.append(listener)
+
+        @callback
+        def unsubscribe() -> None:
+            self._listeners.remove(listener)
+
+        return unsubscribe
+
+    @callback
+    def _notify(self) -> None:
+        for listener in self._listeners:
+            listener()
 
     @property
     def venue(self) -> str:
@@ -131,6 +148,7 @@ class WatchRunner:
             return None
         self.last_catch = catch
         await self._async_report(catch, rule, booked=rule.book)
+        self._notify()
         return catch
 
     @callback
@@ -157,6 +175,7 @@ class WatchRunner:
     def _note_interval(self, accounts: list[ConfigEntry], interval: timedelta | None) -> None:
         """One reader polls; the others are told to stop on our account."""
         self.interval = interval
+        self._notify()
         for position, entry in enumerate(accounts):
             entry.runtime_data.coordinator.async_note_watch_interval(
                 interval if position == 0 else None
@@ -215,4 +234,5 @@ class WatchRunner:
 
     @callback
     def async_shutdown(self) -> None:
-        """Nothing to release: the watch holds no timer and no session."""
+        """The watch holds no timer and no session; only its listeners."""
+        self._listeners.clear()

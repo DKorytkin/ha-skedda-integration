@@ -293,3 +293,73 @@ async def test_a_shut_gate_gives_the_poll_rate_back(
     await watch.runtime_data.watcher.async_scan()
 
     assert watch.runtime_data.watcher.interval is None
+
+
+async def test_a_rule_can_be_turned_off_without_deleting_it(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    await setup_with_job(hass, mock_entry)
+    watch = await watch_entry_with_rule(hass)
+    entity_id = "switch.our_evening_rule_enabled"
+    mock_provider.book.reset_mock()
+
+    await hass.services.async_call("switch", "turn_off", {"entity_id": entity_id}, blocking=True)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(entity_id).state == "off"
+    assert await watch.runtime_data.watcher.async_scan() is None
+    assert mock_provider.book.await_count == 0
+
+
+async def test_the_rule_sensor_says_why_it_is_idle(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """A shut gate is a reason, not an absence."""
+    mock_provider.list_bookings.return_value = [mine(day, 20) for day in range(0, 21, 7)]
+    await setup_with_job(hass, mock_entry)
+    watch = await watch_entry_with_rule(hass)
+
+    await watch.runtime_data.watcher.async_scan()
+    await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.our_evening_watch")
+    assert state.state == "no_quota"
+    assert state.attributes["gate_open"] is False
+
+
+async def test_the_rule_sensor_reports_a_catch(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    await setup_with_job(hass, mock_entry)
+    watch = await watch_entry_with_rule(hass)
+
+    caught = await watch.runtime_data.watcher.async_scan()
+    await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.our_evening_watch")
+    assert state.state == "watching"
+    assert state.attributes["last_catch"] == caught.start.isoformat()
+    assert state.attributes["poll_interval_minutes"] is not None
+
+
+async def test_a_disabled_rule_reads_as_disabled(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    await setup_with_job(hass, mock_entry)
+    await watch_entry_with_rule(hass, enabled=False)
+
+    assert hass.states.get("sensor.our_evening_watch").state == "disabled"
+
+
+async def test_a_rule_turned_off_can_be_turned_back_on(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    await setup_with_job(hass, mock_entry)
+    watch = await watch_entry_with_rule(hass, enabled=False)
+    entity_id = "switch.our_evening_rule_enabled"
+
+    await hass.services.async_call("switch", "turn_on", {"entity_id": entity_id}, blocking=True)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(entity_id).state == "on"
+    assert [rule.enabled for rule in watch.runtime_data.watcher.rules] == [True]
