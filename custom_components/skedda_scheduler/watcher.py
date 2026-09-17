@@ -67,6 +67,8 @@ class WatchRunner:
         self._coordinators: list[CALLBACK_TYPE] = []
         #: Unsubscribes that live as long as the entry does.
         self._following: list[CALLBACK_TYPE] = []
+        #: Which account does the reading this time round.
+        self._reader = 0
 
     @callback
     def async_add_listener(self, listener: CALLBACK_TYPE) -> CALLBACK_TYPE:
@@ -104,11 +106,7 @@ class WatchRunner:
         return found
 
     def accounts(self) -> list[ConfigEntry]:
-        """Loaded accounts for this venue, in a stable order.
-
-        The first is the reader: every account sees the same venue-wide list,
-        so polling with more than one would multiply the traffic for nothing.
-        """
+        """Loaded accounts for this venue, in a stable order."""
         return sorted(
             (
                 entry
@@ -169,11 +167,21 @@ class WatchRunner:
             # as "Task exception was never retrieved" and nothing else.
             _LOGGER.warning("Watch scan failed: %s", err)
 
+    def reader(self, accounts: list[ConfigEntry]) -> ConfigEntry:
+        """Whose session asks the venue this time.
+
+        Every account sees the same venue-wide list, so one reader is enough -
+        but always the same one would be a single account polling all day while
+        the others sit idle. Taking turns spreads the same traffic across the
+        people it belongs to.
+        """
+        return accounts[self._reader % len(accounts)]
+
     async def async_refresh_and_scan(self) -> Catch | None:
         """Re-read the venue first, because something outside says to look."""
         accounts = self.accounts()
         if accounts:
-            await accounts[0].runtime_data.coordinator.async_refresh()
+            await self.reader(accounts).runtime_data.coordinator.async_refresh()
         return await self.async_scan()
 
     async def async_scan(self) -> Catch | None:
@@ -186,7 +194,16 @@ class WatchRunner:
             return None
 
         self._follow_accounts()
-        data = accounts[0].runtime_data.coordinator.data
+        # Any account's snapshot describes the same venue, so a reader that has
+        # not polled yet is no reason to sit out this round.
+        data = next(
+            (
+                entry.runtime_data.coordinator.data
+                for entry in (self.reader(accounts), *accounts)
+                if entry.runtime_data.coordinator.data is not None
+            ),
+            None,
+        )
         if data is None:
             return None
 
@@ -243,13 +260,18 @@ class WatchRunner:
 
     @callback
     def _note_interval(self, accounts: list[ConfigEntry], interval: timedelta | None) -> None:
-        """One reader polls; the others are told to stop on our account."""
+        """One account polls for all of them, and not always the same one."""
         self.interval = interval
         self._notify()
-        for position, entry in enumerate(accounts):
+        if not accounts:
+            return
+        reading = self.reader(accounts)
+        for entry in accounts:
             entry.runtime_data.coordinator.async_note_watch_interval(
-                interval if position == 0 else None
+                interval if entry is reading else None
             )
+        # Next round belongs to somebody else.
+        self._reader = (self._reader + 1) % len(accounts)
 
     async def _async_book(self, catch: Catch, rule: WatchRule) -> bool:
         entry = next(entry for entry in self.accounts() if entry.entry_id == catch.account_id)

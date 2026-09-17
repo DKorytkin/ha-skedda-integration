@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from itertools import pairwise
 from typing import Any
 from unittest.mock import AsyncMock, patch
 from zoneinfo import ZoneInfo
@@ -297,7 +298,7 @@ async def test_a_venue_with_nothing_free_is_simply_quiet(
     assert watch.runtime_data.watcher.gate_open is True
 
 
-async def test_only_the_reader_is_asked_to_poll_faster(
+async def test_only_one_account_is_asked_to_poll_faster(
     hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock, extra_account: Any
 ) -> None:
     """One venue-wide list: a second account polling it is pure waste."""
@@ -307,9 +308,31 @@ async def test_only_the_reader_is_asked_to_poll_faster(
 
     await watch.runtime_data.watcher.async_scan()
 
+    intervals = [
+        mock_entry.runtime_data.coordinator.update_interval,
+        second.runtime_data.coordinator.update_interval,
+    ]
     assert watch.runtime_data.watcher.interval is not None
-    assert mock_entry.runtime_data.coordinator.update_interval <= timedelta(minutes=15)
-    assert second.runtime_data.coordinator.update_interval > timedelta(minutes=15)
+    assert sum(interval <= timedelta(minutes=15) for interval in intervals) == 1
+
+
+async def test_the_reading_is_passed_around_the_accounts(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock, extra_account: Any
+) -> None:
+    """Always the same reader is one member polling all day for everyone."""
+    await setup_account(hass, mock_entry)
+    second = await extra_account()
+    watch = await watch_entry_with_rule(hass)
+    runner = watch.runtime_data.watcher
+    accounts = runner.accounts()
+
+    readers = []
+    for _ in range(4):
+        readers.append(runner.reader(accounts).entry_id)
+        await runner.async_scan()
+
+    assert set(readers) == {mock_entry.entry_id, second.entry_id}
+    assert all(one != two for one, two in pairwise(readers))
 
 
 async def test_a_shut_gate_gives_the_poll_rate_back(
