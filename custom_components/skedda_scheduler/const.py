@@ -13,13 +13,15 @@ CONF_ALIAS: Final = "alias"
 CONF_VENUE_TIMEZONE: Final = "venue_timezone"
 
 SUBENTRY_TYPE_JOB: Final = "job"
+SUBENTRY_TYPE_WATCH_RULE: Final = "watch_rule"
 
-#: A config entry is either a Skedda account or the Google calendar link.
-#: One domain, two kinds of entry: the calendar is not owned by any one
-#: account, and OAuth in Home Assistant is a config-entry flow.
+#: A config entry is a Skedda account, the Google calendar link, or the slot
+#: watch. One domain, three kinds: neither the calendar nor the watch is owned
+#: by any one account - the watch spends whichever account still has quota.
 CONF_ENTRY_KIND: Final = "entry_kind"
 ENTRY_KIND_ACCOUNT: Final = "account"
 ENTRY_KIND_CALENDAR: Final = "google_calendar"
+ENTRY_KIND_WATCH: Final = "slot_watch"
 
 CONF_CALENDAR_ID: Final = "calendar_id"
 CONF_EVENT_TITLE: Final = "event_title"
@@ -44,6 +46,17 @@ CONF_NOTIFY_TARGETS: Final = "notify_targets"
 CONF_ENABLED: Final = "enabled"
 CONF_NAME: Final = "name"
 
+CONF_WEEKDAYS: Final = "weekdays"
+CONF_NOT_BEFORE: Final = "not_before"
+CONF_NOT_AFTER: Final = "not_after"
+CONF_SPACE_IDS: Final = "space_ids"
+CONF_MODE: Final = "mode"
+CONF_MAX_BLOCK_MINUTES: Final = "max_block_minutes"
+CONF_ALLOW_OTHER_COURT: Final = "allow_other_court"
+CONF_MIN_LEAD_MINUTES: Final = "min_lead_minutes"
+CONF_SPEED: Final = "speed"
+CONF_BOOK: Final = "book"
+
 ATTR_JOB_ID: Final = "job_id"
 
 #: Why a job is not about to do anything, in words rather than by absence.
@@ -63,6 +76,15 @@ DEFAULT_WINDOW_DAYS: Final = 14
 
 EVENT_BOOKING_SUCCEEDED: Final = f"{DOMAIN}_booking_succeeded"
 EVENT_BOOKING_FAILED: Final = f"{DOMAIN}_booking_failed"
+EVENT_SLOT_CAUGHT: Final = f"{DOMAIN}_slot_caught"
+
+SERVICE_SLOT_FREED: Final = "slot_freed"
+
+#: Two players' worth of doubles either side of an hour, and the default cap on
+#: a block a watch rule may build.
+DEFAULT_MAX_BLOCK_MINUTES: Final = 180
+#: A court starting sooner than this cannot be filled with people.
+DEFAULT_MIN_LEAD_MINUTES: Final = 180
 
 DEFAULT_PREWARM_SECONDS: Final = 120
 DEFAULT_LEAD_MS: Final = 150
