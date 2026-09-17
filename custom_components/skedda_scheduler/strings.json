@@ -299,6 +299,20 @@
     "refresh_spaces": {
       "name": "Refresh spaces",
       "description": "Re-reads courts and upcoming bookings from Skedda for every configured account."
+    },
+    "slot_freed": {
+      "name": "Slot freed",
+      "description": "Look for a freed slot now instead of waiting for the next poll. Call this from an automation that hears about cancellations sooner than we do.",
+      "fields": {
+        "space": {
+          "name": "Court",
+          "description": "Which court, if the message said. Optional: the watch re-reads the venue either way."
+        },
+        "start": {
+          "name": "Start",
+          "description": "When the freed slot starts, if the message said. Optional."
+        }
+      }
     }
   },
   "exceptions": {

@@ -7,3 +7,14 @@ trigger_job_now:
         text:
 
 refresh_spaces:
+
+slot_freed:
+  fields:
+    space:
+      example: "Court 1"
+      selector:
+        text:
+    start:
+      example: "2026-10-01T20:00:00"
+      selector:
+        text:
