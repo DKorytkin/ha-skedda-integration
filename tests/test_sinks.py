@@ -254,3 +254,27 @@ async def test_the_event_bus_still_hears_about_every_run(
     await hass.async_block_till_done()
 
     assert len(events) == 1
+
+
+async def test_a_sink_takes_anything_that_can_describe_itself(hass: HomeAssistant) -> None:
+    """A watch rule is not a job, and wants the same notification."""
+    from custom_components.skedda_scheduler.core.watch import WatchRule
+
+    watching = WatchRule(
+        rule_id="r1",
+        name="Our evening",
+        weekdays=frozenset({3}),
+        not_before=time(19, 0),
+        not_after=time(21, 0),
+        space_ids=("2000001",),
+        duration_minutes=60,
+        venue_timezone="Europe/Kyiv",
+    )
+
+    events = async_capture_events(hass, EVENT_BOOKING_SUCCEEDED)
+
+    assert "Our evening" in build_message(outcome(succeeded=True), watching)
+    await async_dispatch(build_default_sinks(hass), outcome(succeeded=True), watching)
+    await hass.async_block_till_done()
+
+    assert events[0].data["job_name"] == "Our evening"

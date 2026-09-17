@@ -47,6 +47,18 @@ const STRINGS = {
     weekly: "weekly",
     once: "once",
     biweekly: "fortnightly",
+    watching: "Watching for freed slots",
+    noWatches: "Nothing is being watched for.",
+    rule: "Rule",
+    daysHours: "Days and hours",
+    watchState: "State",
+    gateOpen: "watching",
+    gateShut: "no quota left",
+    ruleOff: "turned off",
+    notifyOnly: "notify only",
+    lastCatch: "last catch",
+    every: "every",
+    minutes: "min",
   },
   uk: {
     accounts: "Акаунти",
@@ -76,8 +88,24 @@ const STRINGS = {
     weekly: "щотижня",
     once: "один раз",
     biweekly: "раз на два тижні",
+    watching: "Полювання за слотами",
+    noWatches: "Ще немає жодного правила.",
+    rule: "Правило",
+    daysHours: "Дні й години",
+    watchState: "Стан",
+    gateOpen: "стежить",
+    gateShut: "квота вичерпана",
+    ruleOff: "вимкнено",
+    notifyOnly: "лише сповіщення",
+    lastCatch: "остання здобич",
+    every: "кожні",
+    minutes: "хв",
   },
 };
+
+//: Two letters is all a row has space for, and the order matches
+//: datetime.weekday(): Monday first.
+const DAY_NAMES = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
 const SETTINGS_URL = "/config/integrations/integration/skedda_scheduler";
 
@@ -218,7 +246,7 @@ class SkeddaPanel extends HTMLElement {
       body.innerHTML = `<div class="card">${message}</div>`;
       return;
     }
-    const { accounts, bookings, jobs } = this._data;
+    const { accounts, bookings, jobs, watches } = this._data;
     body.innerHTML = `
       ${header(t, accounts)}
       ${this._error ? `<div class="card"><div class="error">${esc(this._error)}</div></div>` : ""}
@@ -235,6 +263,13 @@ class SkeddaPanel extends HTMLElement {
         [t.nextSlot, t.court, t.account, t.status],
         jobs.map((job) => jobRow(t, job)),
         t.noJobs,
+      )}
+      ${card(
+        t.watching,
+        "",
+        [t.rule, t.daysHours, t.watchState, ""],
+        (watches || []).map((watch) => watchRow(t, watch)),
+        t.noWatches,
       )}
     `;
   }
@@ -304,6 +339,26 @@ function jobRow(t, job) {
     <td>${esc(job.court)}${repeat}</td>
     <td>${esc(job.account)}</td>
     <td>${detail}</td>
+  </tr>`;
+}
+
+function watchRow(t, watch) {
+  const days = watch.days.map((day) => DAY_NAMES[day]).join(" ");
+  const rate =
+    watch.gate_open && watch.poll_interval_minutes
+      ? ` <span class="muted">— ${esc(t.every)} ${watch.poll_interval_minutes} ${esc(t.minutes)}</span>`
+      : "";
+  // A shut gate is the ordinary resting state at a venue with a weekly
+  // allowance, so it reads as a state rather than as a fault.
+  const state = !watch.enabled ? t.ruleOff : watch.gate_open ? t.gateOpen : t.gateShut;
+  const caught = watch.last_catch
+    ? `<span class="muted">${esc(t.lastCatch)} ${when(watch.last_catch)}</span>`
+    : "";
+  return `<tr>
+    <td>${esc(watch.name)}${watch.book ? "" : ` <span class="muted">(${esc(t.notifyOnly)})</span>`}</td>
+    <td>${esc(days)} <span class="muted">${esc(watch.hours)}</span></td>
+    <td>${esc(state)}${rate}</td>
+    <td>${caught}</td>
   </tr>`;
 }
 

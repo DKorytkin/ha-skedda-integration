@@ -35,6 +35,24 @@ sign-in method.
 
 ## Common situations
 
+### The watch never catches anything
+
+Its sensor says what it is doing. `No quota left` is the ordinary resting
+state: every account has spent its hour in every week of the horizon, so there
+is nothing to spend and the watch is not even looking. It resumes by itself as
+the horizon rolls forward, or the moment one of your bookings is cancelled.
+
+If it says `Watching` and still catches nothing:
+
+- **Is anything actually free?** Open the venue and look at the days and hours
+  the rule covers. A watch cannot conjure a slot nobody gave up.
+- **Is the lead time in the way?** With the default three hours, a slot freed
+  the same evening is refused. Lower it if you can gather people faster.
+- **Are the hours narrower than you think?** A slot must *end* by **not after**,
+  so 19:00-20:00 with a 90-minute duration matches nothing.
+- **Is it in neighbour mode on a day you hold nothing?** That mode only grows a
+  block; use *both* if a lone hour is also welcome.
+
 ### `Last outcome` says `slot_taken`
 
 The court was reserved by someone else before the request arrived. The run stops at

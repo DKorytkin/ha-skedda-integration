@@ -9,8 +9,8 @@ from __future__ import annotations
 from homeassistant.core import HomeAssistant
 
 from ..const import EVENT_BOOKING_FAILED, EVENT_BOOKING_SUCCEEDED
-from ..core.job import BookingJob
 from ..core.result import BookingOutcome
+from ..core.subject import BookingSubject
 
 
 class HaEventSink:
@@ -19,6 +19,6 @@ class HaEventSink:
     def __init__(self, hass: HomeAssistant) -> None:
         self._hass = hass
 
-    async def async_handle(self, outcome: BookingOutcome, job: BookingJob) -> None:
+    async def async_handle(self, outcome: BookingOutcome, subject: BookingSubject) -> None:
         event = EVENT_BOOKING_SUCCEEDED if outcome.succeeded else EVENT_BOOKING_FAILED
-        self._hass.bus.async_fire(event, {"job_name": job.name, **outcome.as_dict()})
+        self._hass.bus.async_fire(event, {"job_name": subject.name, **outcome.as_dict()})

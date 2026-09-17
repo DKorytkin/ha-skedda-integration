@@ -130,3 +130,20 @@ def test_the_jobs_card_offers_one_way_to_manage_them() -> None:
     # One per account row, one for the jobs card, one for the empty state.
     assert source.count('href="${SETTINGS_URL}"') == 3
     assert "t.edit" not in source
+
+
+def test_the_panel_shows_what_is_being_watched_for() -> None:
+    """The third block: rules, their state, and what they last caught."""
+    source = PANEL_JS.read_text(encoding="utf-8")
+
+    assert "function watchRow(" in source
+    assert "esc(watch.name)" in source
+    assert "Полювання за слотами" in source
+    assert "watches" in source
+
+
+def test_the_panel_survives_an_instance_with_no_watch() -> None:
+    """The key is absent until a watch exists; a card must not explode."""
+    source = PANEL_JS.read_text(encoding="utf-8")
+
+    assert "(watches || [])" in source

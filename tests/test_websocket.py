@@ -398,3 +398,42 @@ async def test_the_calendar_link_holds_no_bookings_to_cancel(
     response = await client.receive_json()
 
     assert response["error"]["code"] == "not_loaded"
+
+
+async def test_the_overview_lists_watch_rules(
+    hass: HomeAssistant,
+    hass_ws_client: Any,
+    mock_entry: MockConfigEntry,
+    mock_provider: AsyncMock,
+) -> None:
+    from tests.helpers import watch_entry_with_rule
+
+    await setup_with_job(hass, mock_entry)
+    await watch_entry_with_rule(hass)
+    client = await hass_ws_client(hass)
+
+    result = await overview(client)
+
+    assert [watch["name"] for watch in result["watches"]] == ["Our evening"]
+    watching = result["watches"][0]
+    assert watching["enabled"] is True
+    assert watching["hours"] == "19:00-21:00"
+    assert watching["entry_id"] == "entry-watch"
+
+
+async def test_the_overview_says_when_a_watch_has_nothing_left_to_spend(
+    hass: HomeAssistant,
+    hass_ws_client: Any,
+    mock_entry: MockConfigEntry,
+    mock_provider: AsyncMock,
+) -> None:
+    from tests.helpers import watch_entry_with_rule
+    from tests.test_watcher import mine
+
+    mock_provider.list_bookings.return_value = [mine(day, 20) for day in range(0, 21, 7)]
+    await setup_with_job(hass, mock_entry)
+    watch = await watch_entry_with_rule(hass)
+    await watch.runtime_data.watcher.async_scan()
+    client = await hass_ws_client(hass)
+
+    assert (await overview(client))["watches"][0]["gate_open"] is False

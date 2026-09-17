@@ -11,13 +11,18 @@ account in its id instead.
 
 from __future__ import annotations
 
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
+from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import slugify
 
 from .const import CONF_VENUE, DOMAIN
 from .coordinator import SkeddaCoordinator
 from .core.job import BookingJob
+from .core.watch import WatchRule
+from .watcher import WatchRunner
 
 
 class SkeddaAccountEntity(CoordinatorEntity[SkeddaCoordinator]):
@@ -63,3 +68,39 @@ def _court_name(coordinator: SkeddaCoordinator, job: BookingJob) -> str:
         if space.id == job.primary_space_id:
             return space.name
     return job.primary_space_id
+
+
+class SkeddaWatchEntity(Entity):
+    """An entity describing one watch rule.
+
+    No coordinator: the watch reads the accounts' snapshots rather than
+    polling for itself, so its entities follow the runner instead.
+    """
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+
+    def __init__(self, entry: ConfigEntry, runner: WatchRunner, rule: WatchRule) -> None:
+        self._entry = entry
+        self.runner = runner
+        self.rule = rule
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{entry.entry_id}:{rule.rule_id}")},
+            name=rule.name,
+            manufacturer="Skedda",
+            model="Watch rule",
+            entry_type=DeviceEntryType.SERVICE,
+            configuration_url=f"https://{entry.data[CONF_VENUE]}.skedda.com",
+        )
+
+    async def async_added_to_hass(self) -> None:
+        self.async_on_remove(self.runner.async_add_listener(self._handle_update))
+
+    @callback
+    def _handle_update(self) -> None:
+        """The runner scanned; whatever this entity shows may have moved."""
+        current = next(
+            (rule for rule in self.runner.rules if rule.rule_id == self.rule.rule_id), self.rule
+        )
+        self.rule = current
+        self.async_write_ha_state()

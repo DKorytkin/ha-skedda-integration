@@ -19,14 +19,17 @@ from . import google_calendar
 from .api.client import SkeddaClient
 from .api.errors import SkeddaAuthError, SkeddaError
 from .api.models import SkeddaCredentials
-from .const import CONF_VENUE, DOMAIN
+from .const import CONF_VENUE, DOMAIN, ENTRY_KIND_WATCH
 from .coordinator import SkeddaCoordinator
+from .entry_kinds import entry_kind, is_account_entry
 from .google_calendar import is_calendar_entry
 from .panel import async_register_panel
 from .scheduler import JobScheduler, async_build_job_sinks
 from .services import async_setup_services
+from .sinks import ResultSink
 from .skedda_provider import SkeddaProvider
 from .store import AttemptStore
+from .watcher import WatchRunner
 from .websocket import async_register as async_register_websocket
 
 PLATFORMS: list[Platform] = [
@@ -36,6 +39,10 @@ PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.SWITCH,
 ]
+
+#: The watch has no binary sensor, button or calendar: it is rules, not an
+#: account, and the only things worth showing are what each rule is doing.
+WATCH_PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.SWITCH]
 
 
 @dataclass
@@ -53,7 +60,21 @@ class SkeddaRuntimeData:
     scheduler: JobScheduler | None = None
 
 
+@dataclass
+class WatchRuntimeData:
+    """What the slot watch needs at runtime.
+
+    No coordinator and no provider of its own: it reads the accounts', and
+    spends whichever of them still has an hour this week.
+    """
+
+    watcher: WatchRunner
+    sinks: list[ResultSink]
+
+
 type SkeddaConfigEntry = ConfigEntry[SkeddaRuntimeData]
+#: The same domain, a different payload: the watch has no coordinator.
+type WatchConfigEntry = ConfigEntry[WatchRuntimeData]
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -67,7 +88,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bo
     """Set up one entry, of whichever kind it is."""
     if is_calendar_entry(entry):
         return await _async_setup_calendar(hass, entry)
+    if entry_kind(entry) == ENTRY_KIND_WATCH:
+        return await _async_setup_watch(hass, entry)
     return await _async_setup_account(hass, entry)
+
+
+async def _async_setup_watch(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bool:
+    """The watch has no coordinator of its own: it reads the accounts'."""
+    runner = WatchRunner(hass, entry)
+    entry.runtime_data = WatchRuntimeData(  # type: ignore[assignment]
+        watcher=runner, sinks=await async_build_job_sinks(hass)
+    )
+    entry.async_on_unload(runner.async_shutdown)
+    await hass.config_entries.async_forward_entry_setups(entry, WATCH_PLATFORMS)
+    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
+    return True
 
 
 async def _async_setup_calendar(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bool:
@@ -143,7 +178,10 @@ async def _async_setup_account(hass: HomeAssistant, entry: SkeddaConfigEntry) ->
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> bool:
-    if is_calendar_entry(entry):
+    if entry_kind(entry) == ENTRY_KIND_WATCH:
+        return await hass.config_entries.async_unload_platforms(entry, WATCH_PLATFORMS)
+    if not is_account_entry(entry):
+        # The calendar owns no platform to unload.
         return True
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
@@ -154,7 +192,7 @@ async def async_reload_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> N
 
 async def async_remove_entry(hass: HomeAssistant, entry: SkeddaConfigEntry) -> None:
     """Take the account's booking history with it."""
-    if is_calendar_entry(entry):
+    if not is_account_entry(entry):
         return
     await AttemptStore(hass, entry).async_remove()
 

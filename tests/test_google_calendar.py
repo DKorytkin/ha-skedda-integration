@@ -79,7 +79,7 @@ def calendar_entry(**overrides: Any) -> MockConfigEntry:
     )
 
 
-async def test_the_first_screen_offers_both_kinds_of_entry(
+async def test_the_first_screen_offers_every_kind_of_entry(
     hass: HomeAssistant, credentials: None
 ) -> None:
     """One integration, two things to add: an account, and the calendar."""
@@ -88,7 +88,7 @@ async def test_the_first_screen_offers_both_kinds_of_entry(
     )
 
     assert result["type"] is FlowResultType.MENU
-    assert set(result["menu_options"]) == {"account", "calendar"}
+    assert set(result["menu_options"]) == {"account", "calendar", "watch"}
 
 
 async def test_linking_a_calendar_asks_google_then_asks_which_one(

@@ -5,25 +5,37 @@ from __future__ import annotations
 import logging
 
 import voluptuous as vol
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 
-from .const import ATTR_JOB_ID, DOMAIN
+from .const import ATTR_JOB_ID, DOMAIN, ENTRY_KIND_WATCH, SERVICE_SLOT_FREED
+from .entry_kinds import entry_kind, is_account_entry
 
 _LOGGER = logging.getLogger(__name__)
 
 SERVICE_TRIGGER_JOB_NOW = "trigger_job_now"
 SERVICE_REFRESH_SPACES = "refresh_spaces"
 
+#: Nothing here is required, and nothing here is trusted: the call decides
+#: when to look, never what to take. A caller that can name the slot is
+#: welcome to, but the watch re-reads the venue and applies its own rules.
+SLOT_FREED_SCHEMA = vol.Schema({vol.Optional("space"): cv.string, vol.Optional("start"): cv.string})
+
 TRIGGER_SCHEMA = vol.Schema({vol.Required(ATTR_JOB_ID): cv.string})
+
+
+def _accounts(hass: HomeAssistant) -> list[ConfigEntry]:
+    """The loaded entries that hold a login, and so runtime data to act on."""
+    return [e for e in hass.config_entries.async_loaded_entries(DOMAIN) if is_account_entry(e)]
 
 
 @callback
 def async_setup_services(hass: HomeAssistant) -> None:
     async def _trigger_job_now(call: ServiceCall) -> None:
         job_id = call.data[ATTR_JOB_ID]
-        for entry in hass.config_entries.async_loaded_entries(DOMAIN):
+        for entry in _accounts(hass):
             scheduler = entry.runtime_data.scheduler
             if scheduler is not None and scheduler.runner_for(job_id) is not None:
                 await scheduler.async_run_now(job_id)
@@ -36,10 +48,16 @@ def async_setup_services(hass: HomeAssistant) -> None:
         )
 
     async def _refresh_spaces(_call: ServiceCall) -> None:
-        for entry in hass.config_entries.async_loaded_entries(DOMAIN):
+        for entry in _accounts(hass):
             await entry.runtime_data.coordinator.async_refresh()
+
+    async def _slot_freed(_call: ServiceCall) -> None:
+        for entry in hass.config_entries.async_loaded_entries(DOMAIN):
+            if entry_kind(entry) == ENTRY_KIND_WATCH:
+                await entry.runtime_data.watcher.async_refresh_and_scan()
 
     hass.services.async_register(
         DOMAIN, SERVICE_TRIGGER_JOB_NOW, _trigger_job_now, schema=TRIGGER_SCHEMA
     )
+    hass.services.async_register(DOMAIN, SERVICE_SLOT_FREED, _slot_freed, schema=SLOT_FREED_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_REFRESH_SPACES, _refresh_spaces)

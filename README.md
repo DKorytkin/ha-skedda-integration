@@ -53,6 +53,11 @@ slot size, booking horizon and weekly allowance are read from the venue itself. 
 add one booking job per recurring slot. Every field is explained in
 [docs/configuration.md](docs/configuration.md).
 
+A slot watch is optional too: write rules for what you would take if somebody
+gave it up - which days, which hours, which courts - and the integration books it
+with whichever account still has quota that week. It stops looking entirely when
+there is nothing left to spend.
+
 Optionally link a Google calendar, and every booking that lands becomes an event
 with the people you name invited to it. Home Assistant cannot invite anyone to a
 calendar event, so this talks to Google directly and needs an OAuth client of your

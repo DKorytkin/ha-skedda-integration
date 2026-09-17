@@ -14,20 +14,20 @@ from .api.google import GoogleCalendarClient
 from .const import (
     CONF_ATTENDEES,
     CONF_CALENDAR_ID,
-    CONF_ENTRY_KIND,
     CONF_EVENT_TITLE,
     CONF_LOCATION,
     DEFAULT_EVENT_TITLE,
     DOMAIN,
     ENTRY_KIND_CALENDAR,
 )
+from .entry_kinds import entry_kind
 from .sinks.google_calendar import GoogleCalendarSink
 
 _LOGGER = logging.getLogger(__name__)
 
 
 def is_calendar_entry(entry: ConfigEntry) -> bool:
-    return bool(entry.data.get(CONF_ENTRY_KIND) == ENTRY_KIND_CALENDAR)
+    return entry_kind(entry) == ENTRY_KIND_CALENDAR
 
 
 def async_find_calendar_entry(hass: HomeAssistant) -> ConfigEntry | None:

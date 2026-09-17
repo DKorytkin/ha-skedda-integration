@@ -26,12 +26,13 @@ from .const import (
     CONF_ENABLED,
     CONF_VENUE,
     DOMAIN,
+    ENTRY_KIND_WATCH,
     STATUS_ARMED,
     STATUS_DISABLED,
     STATUS_OUT_OF_SEASON,
     SUBENTRY_TYPE_JOB,
 )
-from .google_calendar import is_calendar_entry
+from .entry_kinds import entry_kind, is_account_entry
 from .job_factory import build_job, venue_timezone_for
 
 TYPE_OVERVIEW = f"{DOMAIN}/overview"
@@ -58,11 +59,15 @@ def websocket_overview(
     accounts: list[dict[str, Any]] = []
     jobs: list[dict[str, Any]] = []
     bookings: list[dict[str, Any]] = []
+    watches: list[dict[str, Any]] = []
 
     for entry in hass.config_entries.async_entries(DOMAIN):
-        if is_calendar_entry(entry):
-            # Not an account: it holds a Google link, no venue, no runtime
-            # data of its own, and nothing this page has to say about it.
+        if entry_kind(entry) == ENTRY_KIND_WATCH and entry.state is ConfigEntryState.LOADED:
+            watches.extend(_watches(entry))
+            continue
+        if not is_account_entry(entry):
+            # Only an account has a venue, bookings and runtime data. Asking
+            # any other kind for them is how this page broke once already.
             continue
         if entry.state is not ConfigEntryState.LOADED:
             # An entry that failed to set up has no runtime data to read. It
@@ -79,6 +84,7 @@ def websocket_overview(
             "accounts": accounts,
             "jobs": sorted(jobs, key=lambda job: job["next_slot"] or ""),
             "bookings": sorted(bookings, key=lambda booking: booking["start"]),
+            "watches": watches,
         },
     )
 
@@ -129,6 +135,28 @@ def _jobs(hass: HomeAssistant, entry: ConfigEntry) -> list[dict[str, Any]]:
     return found
 
 
+def _watches(entry: ConfigEntry) -> list[dict[str, Any]]:
+    """One row per watch rule: what it wants, and whether it may act."""
+    runner = entry.runtime_data.watcher
+    interval = runner.interval
+    return [
+        {
+            "rule_id": rule.rule_id,
+            "entry_id": entry.entry_id,
+            "name": rule.name,
+            "enabled": rule.enabled,
+            "days": sorted(rule.weekdays),
+            "hours": f"{rule.not_before:%H:%M}-{rule.not_after:%H:%M}",
+            "mode": rule.mode.value,
+            "book": rule.book,
+            "gate_open": runner.gate_open,
+            "poll_interval_minutes": interval.total_seconds() / 60 if interval else None,
+            "last_catch": runner.last_catch.start.isoformat() if runner.last_catch else None,
+        }
+        for rule in runner.rules
+    ]
+
+
 def _bookings(entry: ConfigEntry) -> list[dict[str, Any]]:
     runtime = entry.runtime_data
     courts = {space.id: space.name for space in runtime.coordinator.data.spaces}
@@ -174,7 +202,7 @@ async def websocket_cancel_booking(
     to go and do it somewhere else.
     """
     entry = hass.config_entries.async_get_entry(msg["entry_id"])
-    if entry is None or is_calendar_entry(entry) or entry.state is not ConfigEntryState.LOADED:
+    if entry is None or not is_account_entry(entry) or entry.state is not ConfigEntryState.LOADED:
         connection.send_error(msg["id"], "not_loaded", "That account is not set up.")
         return
     try:

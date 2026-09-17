@@ -4,11 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.config_entries import ConfigSubentry
+from homeassistant.config_entries import ConfigSubentry, ConfigSubentryData
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.skedda_scheduler.const import SUBENTRY_TYPE_JOB
+from custom_components.skedda_scheduler.const import (
+    CONF_ENTRY_KIND,
+    CONF_VENUE,
+    DOMAIN,
+    ENTRY_KIND_WATCH,
+    SUBENTRY_TYPE_JOB,
+    SUBENTRY_TYPE_WATCH_RULE,
+)
 
 JOB_DATA: dict[str, Any] = {
     "name": "Tuesday 18:00",
@@ -53,3 +60,42 @@ async def setup_with_job(hass: HomeAssistant, entry: MockConfigEntry, **override
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     return subentry_id
+
+
+WATCH_RULE_DATA: dict[str, Any] = {
+    "name": "Our evening",
+    "weekdays": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "not_before": "19:00:00",
+    "not_after": "21:00:00",
+    "space_ids": [],
+    "duration_minutes": 60,
+    "mode": "both",
+    "speed": "stepped",
+    "book": True,
+    "enabled": True,
+}
+
+
+async def watch_entry_with_rule(
+    hass: HomeAssistant, entry_id: str = "entry-watch", **overrides: Any
+) -> MockConfigEntry:
+    """A loaded watch entry holding one rule, with the venue of the fixtures."""
+    data = {**WATCH_RULE_DATA, **overrides}
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Slot watch",
+        entry_id=entry_id,
+        data={CONF_ENTRY_KIND: ENTRY_KIND_WATCH, CONF_VENUE: "myclub"},
+        subentries_data=[
+            ConfigSubentryData(
+                data=data,
+                subentry_type=SUBENTRY_TYPE_WATCH_RULE,
+                title=str(data["name"]),
+                unique_id=None,
+            )
+        ],
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry

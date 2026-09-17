@@ -26,6 +26,7 @@ from custom_components.skedda_scheduler.coordinator import (
 )
 from custom_components.skedda_scheduler.core.provider import Booking
 from tests.conftest import VENUE_RULES
+from tests.helpers import setup_with_job
 
 KYIV = ZoneInfo("Europe/Kyiv")
 
@@ -225,3 +226,41 @@ async def test_a_booking_further_off_than_a_day_polls_at_the_idle_rate(
     coordinator.async_note_next_arming(dt_util.utcnow() + timedelta(days=10))
 
     assert coordinator.update_interval == IDLE_INTERVAL
+
+
+async def test_the_watch_can_ask_for_a_shorter_interval_than_the_scheduler(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Two callers, one dial: the shorter demand wins."""
+    await setup_with_job(hass, mock_entry)
+    coordinator = mock_entry.runtime_data.coordinator
+
+    coordinator.async_note_next_arming(dt_util.utcnow() + timedelta(days=3))
+    coordinator.async_note_watch_interval(timedelta(minutes=2))
+
+    assert coordinator.update_interval == timedelta(minutes=2)
+
+
+async def test_a_watch_that_stops_asking_gives_the_dial_back(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    await setup_with_job(hass, mock_entry)
+    coordinator = mock_entry.runtime_data.coordinator
+    coordinator.async_note_next_arming(None)
+    coordinator.async_note_watch_interval(timedelta(minutes=2))
+
+    coordinator.async_note_watch_interval(None)
+
+    assert coordinator.update_interval == IDLE_INTERVAL
+
+
+async def test_an_imminent_arming_still_wins_over_a_calm_watch(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    await setup_with_job(hass, mock_entry)
+    coordinator = mock_entry.runtime_data.coordinator
+
+    coordinator.async_note_watch_interval(timedelta(minutes=30))
+    coordinator.async_note_next_arming(dt_util.utcnow() + timedelta(minutes=10))
+
+    assert coordinator.update_interval == UPDATE_INTERVAL

@@ -7,8 +7,8 @@ from collections.abc import Sequence
 
 from homeassistant.core import HomeAssistant
 
-from ..core.job import BookingJob
 from ..core.result import BookingOutcome
+from ..core.subject import BookingSubject
 from .base import ResultSink
 from .ha_event import HaEventSink
 from .notify import NotifySink
@@ -36,11 +36,11 @@ def build_sinks(hass: HomeAssistant, calendar: ResultSink | None = None) -> list
 
 
 async def async_dispatch(
-    sinks: Sequence[ResultSink], outcome: BookingOutcome, job: BookingJob
+    sinks: Sequence[ResultSink], outcome: BookingOutcome, subject: BookingSubject
 ) -> None:
     """Run every sink. A broken sink must never lose the other sinks' output."""
     for sink in sinks:
         try:
-            await sink.async_handle(outcome, job)
+            await sink.async_handle(outcome, subject)
         except Exception:
-            _LOGGER.exception("Sink %s failed for job %s", type(sink).__name__, job.job_id)
+            _LOGGER.exception("Sink %s failed for %s", type(sink).__name__, subject.subject_id)

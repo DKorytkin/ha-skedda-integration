@@ -79,6 +79,9 @@ class SkeddaCoordinator(DataUpdateCoordinator[SkeddaData]):
         # Nothing is known to be due until a scheduler says so, and polling a
         # venue every quarter hour on the chance is thousands of requests a
         # month that nobody asked for.
+        self._arming_interval = IDLE_INTERVAL
+        #: What a slot watch wants, when one is watching this venue.
+        self._watch_interval: timedelta | None = None
         self.update_interval = IDLE_INTERVAL
 
     @callback
@@ -89,8 +92,26 @@ class SkeddaCoordinator(DataUpdateCoordinator[SkeddaData]):
         scheduler is the only thing that knows when this account next has
         something to do.
         """
-        self.update_interval = self._interval_for(when)
+        self._arming_interval = self._interval_for(when)
+        self._apply_interval()
         _LOGGER.debug("Next arming %s; polling every %s", when, self.update_interval)
+
+    @callback
+    def async_note_watch_interval(self, interval: timedelta | None) -> None:
+        """How often a slot watch wants this account polled.
+
+        Two callers share one dial, so the shorter demand wins: the scheduler
+        needs a poll before a window opens, the watch needs one between them.
+        """
+        self._watch_interval = interval
+        self._apply_interval()
+
+    @callback
+    def _apply_interval(self) -> None:
+        demands = [self._arming_interval]
+        if self._watch_interval is not None:
+            demands.append(self._watch_interval)
+        self.update_interval = min(demands)
 
     @staticmethod
     def _interval_for(when: datetime | None) -> timedelta:
