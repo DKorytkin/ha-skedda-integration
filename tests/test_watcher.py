@@ -265,3 +265,31 @@ async def test_a_venue_with_nothing_free_is_simply_quiet(
 
     assert await watch.runtime_data.watcher.async_scan() is None
     assert watch.runtime_data.watcher.gate_open is True
+
+
+async def test_only_the_reader_is_asked_to_poll_faster(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock, extra_account: Any
+) -> None:
+    """One venue-wide list: a second account polling it is pure waste."""
+    await setup_with_job(hass, mock_entry)
+    second = await extra_account()
+    watch = await watch_entry_with_rule(hass)
+
+    await watch.runtime_data.watcher.async_scan()
+
+    assert watch.runtime_data.watcher.interval is not None
+    assert mock_entry.runtime_data.coordinator.update_interval <= timedelta(minutes=15)
+    assert second.runtime_data.coordinator.update_interval > timedelta(minutes=15)
+
+
+async def test_a_shut_gate_gives_the_poll_rate_back(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Nothing left to spend means nothing left to look for."""
+    mock_provider.list_bookings.return_value = [mine(day, 20) for day in range(0, 21, 7)]
+    await setup_with_job(hass, mock_entry)
+    watch = await watch_entry_with_rule(hass)
+
+    await watch.runtime_data.watcher.async_scan()
+
+    assert watch.runtime_data.watcher.interval is None

@@ -330,3 +330,30 @@ def evaluate(
                     ),
                 )
     return best[1] if best else None
+
+
+#: Minutes between looks, by how near the nearest candidate day is. The middle
+#: row is roughly 700-1000 requests a week while the gate is open, which is
+#: what a member with the venue's page open all day already produces.
+_STEPS: dict[WatchSpeed, tuple[int, int, int]] = {
+    WatchSpeed.CALM: (30, 15, 5),
+    WatchSpeed.STEPPED: (15, 5, 2),
+    WatchSpeed.FAST: (5, 2, 1),
+}
+
+#: Cancellations cluster as the day approaches, so the rate follows them.
+_NEAR = timedelta(days=2)
+_IMMINENT = timedelta(hours=6)
+
+
+def interval_for(speed: WatchSpeed, nearest: datetime | None, now: datetime) -> timedelta | None:
+    """How often to look, or None when there is nothing to look for."""
+    if nearest is None:
+        return None
+    far, near, imminent = _STEPS[speed]
+    remaining = nearest - now
+    if remaining <= _IMMINENT:
+        return timedelta(minutes=imminent)
+    if remaining <= _NEAR:
+        return timedelta(minutes=near)
+    return timedelta(minutes=far)

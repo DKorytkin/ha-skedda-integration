@@ -14,10 +14,12 @@ from custom_components.skedda_scheduler.core.watch import (
     Catch,
     WatchMode,
     WatchRule,
+    WatchSpeed,
     accounts_with_quota,
     candidates,
     evaluate,
     has_capacity,
+    interval_for,
     is_free,
     week_of,
 )
@@ -442,3 +444,29 @@ def test_a_taken_slot_is_never_chosen() -> None:
     )
 
     assert caught is None
+
+
+def test_the_watch_looks_hardest_the_day_of_play() -> None:
+    now = datetime(2026, 10, 1, 9, tzinfo=KYIV)
+
+    assert interval_for(WatchSpeed.STEPPED, now + timedelta(days=5), now) == timedelta(minutes=15)
+    assert interval_for(WatchSpeed.STEPPED, now + timedelta(days=1), now) == timedelta(minutes=5)
+    assert interval_for(WatchSpeed.STEPPED, now + timedelta(hours=4), now) == timedelta(minutes=2)
+
+
+def test_a_calm_rule_costs_half_of_a_stepped_one() -> None:
+    now = datetime(2026, 10, 1, 9, tzinfo=KYIV)
+
+    assert interval_for(WatchSpeed.CALM, now + timedelta(days=5), now) == timedelta(minutes=30)
+    assert interval_for(WatchSpeed.FAST, now + timedelta(days=5), now) == timedelta(minutes=5)
+
+
+def test_nothing_to_watch_asks_for_no_polling_at_all() -> None:
+    assert interval_for(WatchSpeed.FAST, None, NOW) is None
+
+
+def test_a_day_that_has_already_started_is_treated_as_imminent() -> None:
+    """The rule's hours may still be ahead even when the date is today."""
+    now = datetime(2026, 10, 1, 20, tzinfo=KYIV)
+
+    assert interval_for(WatchSpeed.STEPPED, now - timedelta(hours=1), now) == timedelta(minutes=2)

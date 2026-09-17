@@ -8,7 +8,7 @@ the world and carries out the verdict.
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -16,14 +16,27 @@ from homeassistant.util import dt as dt_util
 
 from .api.errors import SkeddaError
 from .const import CONF_VENUE, DEFAULT_WINDOW_DAYS, DOMAIN, SUBENTRY_TYPE_WATCH_RULE
+from .coordinator import SkeddaData
 from .core.provider import Booking, BookingRequest
 from .core.result import AttemptStatus, BookingAttempt, BookingOutcome
-from .core.watch import Catch, WatchRule, evaluate, has_capacity
+from .core.watch import Catch, WatchRule, candidates, evaluate, has_capacity, interval_for
 from .entry_kinds import is_account_entry
 from .sinks import async_dispatch
 from .watch_factory import build_rule
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _nearest_start(
+    rule: WatchRule,
+    spaces: list[str],
+    now: datetime,
+    horizon: datetime,
+    data: SkeddaData,
+) -> datetime | None:
+    """When this rule's next candidate slot begins, if it has one at all."""
+    found = candidates(rule, spaces, now, horizon, data.rules.slot_minutes)
+    return min((candidate.start for candidate in found), default=None)
 
 
 class WatchRunner:
@@ -35,6 +48,8 @@ class WatchRunner:
         #: False until a scan proves an account still has an hour to spend.
         self.gate_open = False
         self.last_catch: Catch | None = None
+        #: How often this watch is asking the reader to poll, None when idle.
+        self.interval: timedelta | None = None
 
     @property
     def venue(self) -> str:
@@ -83,6 +98,7 @@ class WatchRunner:
         rules = [rule for rule in self.rules if rule.enabled]
         if not accounts or not rules:
             self.gate_open = False
+            self._note_interval(accounts, None)
             return None
 
         data = accounts[0].runtime_data.coordinator.data
@@ -93,6 +109,7 @@ class WatchRunner:
         horizon = now + timedelta(days=data.rules.max_days_ahead or DEFAULT_WINDOW_DAYS)
         ours = {entry.entry_id: self._mine(entry) for entry in accounts}
         self.gate_open = has_capacity(ours, data.rules.weekly_quota_minutes, now, horizon)
+        self._apply_interval(rules, data, now, horizon)
         if not self.gate_open:
             return None
 
@@ -115,6 +132,35 @@ class WatchRunner:
         self.last_catch = catch
         await self._async_report(catch, rule, booked=rule.book)
         return catch
+
+    @callback
+    def _apply_interval(
+        self, rules: list[WatchRule], data: SkeddaData, now: datetime, horizon: datetime
+    ) -> None:
+        """Ask the reader to poll at the rate the nearest candidate deserves.
+
+        Shut gate, no rate: the watch stops costing anything the moment there
+        is nothing left to spend.
+        """
+        if not self.gate_open:
+            self._note_interval(self.accounts(), None)
+            return
+        spaces = [space.id for space in data.spaces]
+        demands = [
+            interval_for(rule.speed, _nearest_start(rule, spaces, now, horizon, data), now)
+            for rule in rules
+        ]
+        wanted = [demand for demand in demands if demand is not None]
+        self._note_interval(self.accounts(), min(wanted) if wanted else None)
+
+    @callback
+    def _note_interval(self, accounts: list[ConfigEntry], interval: timedelta | None) -> None:
+        """One reader polls; the others are told to stop on our account."""
+        self.interval = interval
+        for position, entry in enumerate(accounts):
+            entry.runtime_data.coordinator.async_note_watch_interval(
+                interval if position == 0 else None
+            )
 
     async def _async_book(self, catch: Catch, rule: WatchRule) -> bool:
         entry = next(entry for entry in self.accounts() if entry.entry_id == catch.account_id)
