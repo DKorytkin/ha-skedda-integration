@@ -64,3 +64,25 @@ async def test_refresh_spaces_re_reads_the_venue(
     await hass.async_block_till_done()
 
     mock_provider.list_spaces.assert_awaited()
+
+
+async def test_refresh_spaces_ignores_entries_that_are_not_accounts(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """A linked calendar is loaded too, and has no coordinator to refresh."""
+    from tests.test_google_calendar import calendar_entry
+
+    await setup_with_job(hass, mock_entry)
+    linked = calendar_entry()
+    linked.add_to_hass(hass)
+    with patch(
+        "custom_components.skedda_scheduler.google_calendar.async_build_client",
+        return_value=AsyncMock(),
+    ):
+        assert await hass.config_entries.async_setup(linked.entry_id)
+        await hass.async_block_till_done()
+    mock_provider.list_spaces.reset_mock()
+
+    await hass.services.async_call(DOMAIN, "refresh_spaces", blocking=True)
+
+    assert mock_provider.list_spaces.await_count >= 1

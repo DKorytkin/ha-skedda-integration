@@ -31,7 +31,7 @@ from .const import (
     STATUS_OUT_OF_SEASON,
     SUBENTRY_TYPE_JOB,
 )
-from .google_calendar import is_calendar_entry
+from .entry_kinds import is_account_entry
 from .job_factory import build_job, venue_timezone_for
 
 TYPE_OVERVIEW = f"{DOMAIN}/overview"
@@ -60,9 +60,9 @@ def websocket_overview(
     bookings: list[dict[str, Any]] = []
 
     for entry in hass.config_entries.async_entries(DOMAIN):
-        if is_calendar_entry(entry):
-            # Not an account: it holds a Google link, no venue, no runtime
-            # data of its own, and nothing this page has to say about it.
+        if not is_account_entry(entry):
+            # Only an account has a venue, bookings and runtime data. Asking
+            # any other kind for them is how this page broke once already.
             continue
         if entry.state is not ConfigEntryState.LOADED:
             # An entry that failed to set up has no runtime data to read. It
@@ -174,7 +174,7 @@ async def websocket_cancel_booking(
     to go and do it somewhere else.
     """
     entry = hass.config_entries.async_get_entry(msg["entry_id"])
-    if entry is None or is_calendar_entry(entry) or entry.state is not ConfigEntryState.LOADED:
+    if entry is None or not is_account_entry(entry) or entry.state is not ConfigEntryState.LOADED:
         connection.send_error(msg["id"], "not_loaded", "That account is not set up.")
         return
     try:
