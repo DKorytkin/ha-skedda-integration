@@ -149,6 +149,88 @@ while you are still in the form rather than failing quietly every week:
 
 Both limits are read from the venue and shown in the form's description.
 
+## Catching a slot somebody gives up
+
+A booking job races for the moment a window opens. It either wins or it does
+not, and at a venue allowing an hour a week a lost race costs the whole week.
+But courts come back: people cancel. Nothing in Skedda tells a member when that
+happens, so the only way to profit from it is to keep looking.
+
+**Settings → Devices & Services → Add Integration → Skedda Scheduler → Slot
+watch.** There is nothing to fill in: the venue comes from your accounts. Then
+add one rule per thing you want caught.
+
+### Why the watch is not part of an account
+
+Accounts are interchangeable here. Each is one hour a week, and a rule does not
+care which of them pays - so when a slot appears, the watch spends whichever
+account still has an hour that week. Three accounts are what three hours in a
+row costs.
+
+### A rule
+
+| Field | Default | Meaning |
+|---|---|---|
+| **Name** | — | What the rule is for: `Our evening` |
+| **Days** | — | Only these weekdays are watched |
+| **Not before / not after** | 19:00 / 21:00 | A slot must start at or after the first and end at or before the second |
+| **Courts** | any | Which spaces, in preference order |
+| **Duration** | 60 min | How long a slot to take |
+| **What counts as a catch** | both | See below |
+| **Most hours in a row** | 180 min | A catch is refused if it would build a longer block |
+| **A neighbour may be on another court** | off | Whether a block may continue on a different space |
+| **Ignore slots starting sooner than** | 180 min | A court starting in an hour cannot be filled with people |
+| **How often to look** | Stepped | Calm 30/15/5, Stepped 15/5/2, Fast 5/2/1 minutes |
+| **Book it** | on | Turn off to be told and take it yourself |
+| **Watch until** | empty | End of season |
+
+There is no horizon field: the horizon is always today to the venue's last open
+day, because nothing beyond it can be booked at all.
+
+### The two modes
+
+**Next to ours** grows a block. When you already hold an hour that day, the
+watch will take the hour immediately before or after it - on the same court
+unless you allow another - as long as the whole run stays inside the cap. Two
+accounts make two hours; three make three. If every hour of yours that day
+already has neighbours, or the block is at its cap, the rule refuses and says
+nothing: that is a normal outcome, not a failure.
+
+**Any free slot** applies only on a day you hold nothing at all. This is the
+case where every attempt was lost and the group would otherwise not play.
+
+With both enabled, a neighbour wins: growing a block to three hours is worth
+more than a lone hour elsewhere.
+
+### What it costs the venue
+
+Watching is the only expensive thing this integration does. One request covers
+the whole horizon, so the cost is counted in looks:
+
+| Interval | Requests a week |
+|---|---|
+| 15 min | ~670 |
+| 5 min | ~2000 |
+| 1 min | ~10000 |
+
+Four things keep that defensible. **The gate:** when no account has quota left
+in any week of the horizon, the watch stops entirely - no looking, no requests -
+until the horizon rolls forward or something is cancelled. **One reader:** every
+account sees the same venue-wide list, so exactly one polls. **The existing
+poll:** the watch opens no loop of its own; it raises the rate of the poll the
+account already makes. **Steps:** cancellations cluster near the day of play, so
+the rate follows the nearest candidate day rather than running flat.
+
+In practice a week with the gate open all the way through costs 700-1000
+requests at the default speed - about what a member with the venue's page open
+all day produces.
+
+### Telling it sooner
+
+If something else hears about cancellations before we do - a venue's Telegram
+channel, say - an automation can call `skedda_scheduler.slot_freed` and the
+watch looks immediately. See [Usage](usage.md#skedda_schedulerslot_freed).
+
 ## Strategies
 
 | Strategy | Behaviour | Use when |

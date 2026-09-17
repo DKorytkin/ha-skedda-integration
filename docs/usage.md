@@ -85,6 +85,21 @@ A booking run adds the sign-in, a warm-up and up to five attempts, and only a
 run that actually booked something asks for a refresh afterwards - the venue's
 diary does not change unless we change it.
 
+### While a slot watch is running
+
+A watch raises the poll rate of one account - never all of them - and only
+while some account still has quota in the horizon. When every hour is spent the
+watch asks for nothing and the account returns to the table above.
+
+| Nearest day it cares about | Calm | Stepped | Fast |
+|---|---|---|---|
+| more than 2 days away | 30 min | 15 min | 5 min |
+| within 2 days | 15 min | 5 min | 2 min |
+| within 6 hours | 5 min | 2 min | 1 min |
+
+At the default speed that is 700-1000 requests a week while the gate is open.
+See [Configuration](configuration.md#what-it-costs-the-venue).
+
 ## Google Calendar
 
 If a Google calendar is linked, every booking that lands is written to it as an
@@ -117,6 +132,39 @@ Useful after the venue adds or renames a court.
 ```yaml
 action: skedda_scheduler.refresh_spaces
 ```
+
+### `skedda_scheduler.slot_freed`
+
+Look for a freed slot now instead of waiting for the next poll.
+
+```yaml
+action: skedda_scheduler.slot_freed
+data:
+  space: "Court 1"                  # optional
+  start: "2026-10-01T20:00:00"      # optional
+```
+
+Every field is optional, and none of them is trusted: the call decides *when*
+to look, never *what* to take. The watch re-reads the venue and applies its own
+rules, so a message that turns out to be wrong costs one request.
+
+This is how a venue's Telegram channel becomes a trigger. The integration
+parses no Telegram text - extracting a court and a time from a message belongs
+in the automation, where it is easy to fix when the bot changes its wording:
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: telegram_text
+conditions:
+  - condition: template
+    value_template: "{{ 'cancelled' in trigger.event.data.text | lower }}"
+actions:
+  - action: skedda_scheduler.slot_freed
+```
+
+A Telegram bot cannot read a channel's posts unless it is an administrator of
+that channel.
 
 ## Events
 
