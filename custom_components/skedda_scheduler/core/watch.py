@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -122,3 +122,59 @@ def accounts_with_quota(
         if spent < quota_minutes:
             free.append(account)
     return tuple(free)
+
+
+@dataclass(frozen=True, slots=True)
+class Candidate:
+    """A slot a rule would accept if it turns out to be free."""
+
+    rule_id: str
+    space_id: str
+    start: datetime
+    end: datetime
+    neighbour: bool
+
+
+def candidates(
+    rule: WatchRule,
+    spaces: Sequence[str],
+    now: datetime,
+    horizon_end: datetime,
+    slot_minutes: int,
+) -> list[Candidate]:
+    """Every slot this rule would take, before asking whether it is free.
+
+    The venue's grid decides the starts: offering 19:10 at a venue that books
+    on the hour spends a request to learn what was already knowable.
+    """
+    duration = timedelta(minutes=rule.duration_minutes)
+    earliest = now + timedelta(minutes=rule.min_lead_minutes)
+    wanted = rule.space_ids or tuple(spaces)
+    found: list[Candidate] = []
+    day = now.astimezone(rule.tz).date()
+    last = horizon_end.astimezone(rule.tz).date()
+    while day <= last:
+        if day.weekday() in rule.weekdays and (
+            rule.active_until is None or day <= rule.active_until
+        ):
+            closes = datetime.combine(day, rule.not_after, tzinfo=rule.tz)
+            start = datetime.combine(day, rule.not_before, tzinfo=rule.tz)
+            while start + duration <= closes:
+                if start >= earliest and start + duration <= horizon_end:
+                    found.extend(
+                        Candidate(rule.rule_id, space, start, start + duration, neighbour=False)
+                        for space in wanted
+                    )
+                start += timedelta(minutes=slot_minutes)
+        day += timedelta(days=1)
+    return found
+
+
+def is_free(candidate: Candidate, bookings: Sequence[Booking]) -> bool:
+    """Whether nothing in the snapshot occupies this space at this time."""
+    return not any(
+        candidate.space_id in booking.space_ids
+        and booking.start < candidate.end
+        and candidate.start < booking.end
+        for booking in bookings
+    )
