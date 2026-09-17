@@ -558,3 +558,43 @@ async def test_the_calendar_settings_can_be_changed_afterwards(
     assert linked.data[CONF_ATTENDEES] == ["vika@example.com"]
     # The token is not re-issued by an edit.
     assert linked.data["token"]["refresh_token"] == "refresh"
+
+
+async def test_editing_a_link_made_days_ago_refreshes_the_token_first(
+    hass: HomeAssistant, credentials: None, aioclient_mock: Any
+) -> None:
+    """The stored access token expired within an hour of being issued."""
+    stale = calendar_entry()
+    linked = MockConfigEntry(
+        domain=DOMAIN,
+        title=stale.title,
+        entry_id=stale.entry_id,
+        data={**stale.data, "token": {**stale.data["token"], "expires_at": 0}},
+    )
+    linked.add_to_hass(hass)
+    aioclient_mock.post(
+        "https://oauth2.googleapis.com/token",
+        json={
+            "refresh_token": "r",
+            "access_token": "renewed",
+            "type": "Bearer",
+            "expires_in": 3600,
+        },
+    )
+    seen: list[str] = []
+
+    class Recording:
+        def __init__(self, _session: Any, token: Any, **_kwargs: Any) -> None:
+            self._token = token
+
+        async def list_calendars(self) -> list[GoogleCalendar]:
+            seen.append(await self._token())
+            return CALENDARS
+
+    with patch(
+        "custom_components.skedda_scheduler.google_calendar.GoogleCalendarClient", Recording
+    ):
+        result = await linked.start_reconfigure_flow(hass)
+
+    assert result["step_id"] == "calendar_settings"
+    assert seen == ["renewed"]

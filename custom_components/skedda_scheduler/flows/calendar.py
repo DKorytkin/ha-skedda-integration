@@ -57,11 +57,13 @@ async def async_calendar_step(
     token_data: dict[str, Any],
     user_input: dict[str, Any] | None,
     defaults: dict[str, Any] | None = None,
+    client: GoogleCalendarClient | None = None,
 ) -> ConfigFlowResult:
     """Ask which calendar to write to, listing the ones Google allows.
 
-    The token has just been issued, so the list is fetched with it directly
-    rather than through a config entry that does not exist yet.
+    Straight after linking, the token in hand is minutes old and is used as it
+    is. Editing an entry set up days ago is the opposite case: that token
+    expired within the hour, so the caller passes a client that refreshes.
     """
     if user_input is not None:
         return async_create_calendar_entry(flow, token_data, user_input)
@@ -75,13 +77,16 @@ async def async_calendar_step(
     # Home Assistant's own session: it owns the lifetime, and closing it here
     # would take every other integration's requests down with it. Google needs
     # no cookie jar of its own, unlike the venue.
-    session = async_get_clientsession(flow.hass)
+    if client is None:
+        session = async_get_clientsession(flow.hass)
 
-    async def token() -> str:
-        return str(token_data["token"]["access_token"])
+        async def token() -> str:
+            return str(token_data["token"]["access_token"])
+
+        client = GoogleCalendarClient(session, token)
 
     try:
-        calendars = await GoogleCalendarClient(session, token).list_calendars()
+        calendars = await client.list_calendars()
     except SkeddaError:
         # Nothing to choose from means nothing to save; saying so beats an
         # empty dropdown the user cannot get past.
