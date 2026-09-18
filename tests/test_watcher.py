@@ -60,6 +60,21 @@ def mine(days_ahead: int, hour: int, *, space: str = "2000001") -> Booking:
     )
 
 
+def started_an_hour_ago(*, space: str = "2000001") -> Booking:
+    """One of ours that is already under way, whatever time the test runs."""
+    start = (dt_util.utcnow().astimezone(KYIV) - timedelta(hours=1)).replace(
+        minute=0, second=0, microsecond=0
+    )
+    return Booking(
+        id="mine-started",
+        space_ids=(space,),
+        start=start,
+        end=start + timedelta(hours=1),
+        title="",
+        is_mine=True,
+    )
+
+
 async def test_a_free_slot_inside_the_rule_is_booked(
     hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
 ) -> None:
@@ -596,7 +611,7 @@ async def test_a_booking_that_merely_aged_out_is_not_a_release(
     hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
 ) -> None:
     """A slot that has started leaves the window on its own."""
-    past = mine(0, 8)
+    past = started_an_hour_ago()
     mock_provider.list_bookings.return_value = [past]
     await setup_account(hass, mock_entry)
     # Notify-only: nothing else appears and disappears to muddy the test.
