@@ -31,12 +31,14 @@
           "calendar_id": "Calendar",
           "event_title": "Event title",
           "location": "Address",
-          "attendees": "Invite by email"
+          "attendees": "Invite by email",
+          "event_color": "Event colour"
         },
         "data_description": {
           "calendar_id": "Only calendars you can write to are listed.",
           "location": "Shown on the event and used for directions.",
-          "attendees": "Google emails each of them an invitation. Leave empty to book quietly."
+          "attendees": "Google emails each of them an invitation. Leave empty to book quietly.",
+          "event_color": "Google's own palette. Blue unless you change it."
         }
       },
       "reauth_confirm": {

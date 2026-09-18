@@ -298,6 +298,9 @@ class WatchRunner:
 
     async def _async_report(self, catch: Catch, rule: WatchRule, *, booked: bool) -> None:
         now = dt_util.utcnow()
+        paid_by = next(
+            (entry.title for entry in self.accounts() if entry.entry_id == catch.account_id), None
+        )
         outcome = BookingOutcome(
             job_id=rule.rule_id,
             succeeded=booked,
@@ -314,6 +317,7 @@ class WatchRunner:
                 ),
             ),
             finished_at=now,
+            account=paid_by,
         )
         await async_dispatch(self.entry.runtime_data.sinks, outcome, rule)
 

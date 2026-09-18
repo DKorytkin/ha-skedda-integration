@@ -88,8 +88,12 @@ so reuse means entering the same id and secret again, not returning to Google.
 |---|---|
 | **Calendar** | Only calendars you can write to are listed. |
 | **Event title** | `Tennis 🎾` unless you change it. |
-| **Address** | Shown on the event and used for directions. |
+| **Event colour** | Google's own palette, blue by default. |
+| **Address** | Free text, shown on the event and used for directions - a full street address gets you working directions, a venue name gets you a label. |
 | **Invite by email** | Google emails each person an invitation. Leave empty to book quietly. |
+
+The event's description names the account the court is held under. With more
+than one account that is the only way to tell who can change or release it.
 
 Only bookings that succeeded are written. If Google cannot be reached the
 booking still stands and the failure is logged — a missing diary entry must not

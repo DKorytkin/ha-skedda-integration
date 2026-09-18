@@ -322,6 +322,7 @@ class JobRunner:
             slot_end=slot_end,
             attempts=tuple(attempts),
             finished_at=dt_util.utcnow(),
+            account=self.entry.title,
         )
         await self._async_finish(outcome)
         return outcome
@@ -356,6 +357,7 @@ class JobRunner:
             attempts=(),
             finished_at=dt_util.utcnow(),
             no_attempt_reason=reason,
+            account=self.entry.title,
         )
         await self._async_finish(outcome)
         return outcome

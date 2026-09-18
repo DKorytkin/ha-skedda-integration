@@ -16,8 +16,10 @@ from ..const import (
     CONF_ATTENDEES,
     CONF_CALENDAR_ID,
     CONF_ENTRY_KIND,
+    CONF_EVENT_COLOR,
     CONF_EVENT_TITLE,
     CONF_LOCATION,
+    DEFAULT_EVENT_COLOR,
     DEFAULT_EVENT_TITLE,
     ENTRY_KIND_CALENDAR,
 )
@@ -26,6 +28,24 @@ if TYPE_CHECKING:
     from ..config_flow import SkeddaConfigFlow
 
 _LOGGER = logging.getLogger(__name__)
+
+
+#: Google's event palette. The API takes these numbers and nothing else - no
+#: names, no hex - so the names here are ours, chosen to match what Google
+#: shows in its own colour picker.
+COLOR_OPTIONS = [
+    selector.SelectOptionDict(value="7", label="Blue (Peacock)"),
+    selector.SelectOptionDict(value="9", label="Dark blue (Blueberry)"),
+    selector.SelectOptionDict(value="10", label="Green (Basil)"),
+    selector.SelectOptionDict(value="2", label="Light green (Sage)"),
+    selector.SelectOptionDict(value="5", label="Yellow (Banana)"),
+    selector.SelectOptionDict(value="6", label="Orange (Tangerine)"),
+    selector.SelectOptionDict(value="11", label="Red (Tomato)"),
+    selector.SelectOptionDict(value="4", label="Pink (Flamingo)"),
+    selector.SelectOptionDict(value="3", label="Purple (Grape)"),
+    selector.SelectOptionDict(value="1", label="Lavender"),
+    selector.SelectOptionDict(value="8", label="Grey (Graphite)"),
+]
 
 
 def settings_schema(calendars: list[tuple[str, str]], defaults: dict[str, Any]) -> vol.Schema:
@@ -45,6 +65,9 @@ def settings_schema(calendars: list[tuple[str, str]], defaults: dict[str, Any]) 
             vol.Required(
                 CONF_EVENT_TITLE, default=defaults.get(CONF_EVENT_TITLE, DEFAULT_EVENT_TITLE)
             ): selector.TextSelector(),
+            vol.Required(
+                CONF_EVENT_COLOR, default=defaults.get(CONF_EVENT_COLOR, DEFAULT_EVENT_COLOR)
+            ): selector.SelectSelector(selector.SelectSelectorConfig(options=COLOR_OPTIONS)),
             vol.Optional(
                 CONF_LOCATION, default=defaults.get(CONF_LOCATION, "")
             ): selector.TextSelector(),
@@ -73,7 +96,13 @@ async def async_calendar_step(
 
     defaults = defaults or {
         key: token_data[key]
-        for key in (CONF_CALENDAR_ID, CONF_EVENT_TITLE, CONF_LOCATION, CONF_ATTENDEES)
+        for key in (
+            CONF_CALENDAR_ID,
+            CONF_EVENT_TITLE,
+            CONF_EVENT_COLOR,
+            CONF_LOCATION,
+            CONF_ATTENDEES,
+        )
         if key in token_data
     }
 

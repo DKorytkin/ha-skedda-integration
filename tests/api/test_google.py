@@ -210,3 +210,33 @@ async def test_a_refusal_google_explains_badly_still_carries_a_status(
         await client(http, google).create_event(
             "c", summary="x", start=START, end=END, timezone="Europe/Kyiv"
         )
+
+
+async def test_a_colour_is_sent_as_googles_own_palette_number(
+    http: aiohttp.ClientSession, google: FakeSkedda
+) -> None:
+    """The API takes no names and no hex values, only its own numbers."""
+    google.stub("POST", "/calendars/c/events", json=CREATED)
+
+    await client(http, google).create_event(
+        "c",
+        summary="Tennis 🎾",
+        start=START,
+        end=END,
+        timezone="Europe/Kyiv",
+        color_id="9",
+    )
+
+    assert google.requests_for("POST", "/calendars/c/events")[0].json["colorId"] == "9"
+
+
+async def test_an_event_without_a_colour_lets_the_calendar_decide(
+    http: aiohttp.ClientSession, google: FakeSkedda
+) -> None:
+    google.stub("POST", "/calendars/c/events", json=CREATED)
+
+    await client(http, google).create_event(
+        "c", summary="Tennis 🎾", start=START, end=END, timezone="Europe/Kyiv"
+    )
+
+    assert "colorId" not in google.requests_for("POST", "/calendars/c/events")[0].json

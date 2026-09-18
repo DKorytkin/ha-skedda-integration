@@ -27,9 +27,12 @@ CONF_CALENDAR_ID: Final = "calendar_id"
 CONF_EVENT_TITLE: Final = "event_title"
 CONF_LOCATION: Final = "location"
 CONF_ATTENDEES: Final = "attendees"
+CONF_EVENT_COLOR: Final = "event_color"
 
 #: What a court booking is called in a calendar, unless you say otherwise.
 DEFAULT_EVENT_TITLE: Final = "Tennis 🎾"
+#: Google's palette is numbered, not named. 7 is Peacock - the blue one.
+DEFAULT_EVENT_COLOR: Final = "7"
 
 CONF_SPACE_ID: Final = "space_id"
 CONF_WEEKDAY: Final = "weekday"
