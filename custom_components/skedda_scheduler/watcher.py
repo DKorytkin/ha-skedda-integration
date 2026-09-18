@@ -67,6 +67,9 @@ class WatchRunner:
         self._coordinators: list[CALLBACK_TYPE] = []
         #: Unsubscribes that live as long as the entry does.
         self._following: list[CALLBACK_TYPE] = []
+        #: What each account held at the previous scan, so a booking that
+        #: vanishes can be recognised as one we gave up.
+        self._held: dict[str, set[tuple[str, str, str]]] = {}
         #: Which account does the reading this time round.
         self._reader = 0
 
@@ -210,6 +213,7 @@ class WatchRunner:
         now = dt_util.utcnow()
         horizon = now + timedelta(days=data.rules.max_days_ahead or DEFAULT_WINDOW_DAYS)
         ours = {entry.entry_id: self._mine(entry) for entry in accounts}
+        await self._async_note_releases(accounts, ours, now)
         reserved = {entry.entry_id: self._aimed_weeks(entry, now, horizon) for entry in accounts}
         self.gate_open = has_capacity(ours, data.rules.weekly_quota_minutes, now, horizon, reserved)
         self._apply_interval(rules, data, now, horizon)
@@ -226,6 +230,7 @@ class WatchRunner:
             horizon,
             data.rules.slot_minutes,
             reserved,
+            self._released(accounts),
         )
         if catch is None:
             return None
@@ -342,6 +347,45 @@ class WatchRunner:
                     weeks.add(week_of(slot[0]))
                 moment = slot[0]
         return weeks
+
+    async def _async_note_releases(
+        self,
+        accounts: list[ConfigEntry],
+        ours: dict[str, list[Booking]],
+        now: datetime,
+    ) -> None:
+        """Record bookings of ours that have disappeared since the last scan.
+
+        Whoever cancelled it - the panel, the Skedda app, the venue - the
+        answer is the same: we are not to take that court back on our own.
+        Only slots still in the future count; the rest merely aged out of the
+        window we ask about.
+        """
+        for entry in accounts:
+            held = {
+                (
+                    booking.space_ids[0] if booking.space_ids else "",
+                    booking.start.isoformat(),
+                    booking.end.isoformat(),
+                )
+                for booking in ours.get(entry.entry_id, ())
+            }
+            previous = self._held.get(entry.entry_id)
+            self._held[entry.entry_id] = held
+            if previous is None:
+                # First scan of this run: nothing to compare against, and
+                # treating everything as released would block the lot.
+                continue
+            for space_id, start, end in previous - held:
+                moment = dt_util.parse_datetime(start)
+                if moment is not None and moment > now:
+                    await entry.runtime_data.store.async_note_released(
+                        space_id, moment, dt_util.parse_datetime(end) or moment
+                    )
+
+    def _released(self, accounts: list[ConfigEntry]) -> set[tuple[str, str]]:
+        """Every slot any of our accounts gave up."""
+        return {slot for entry in accounts for slot in entry.runtime_data.store.released_slots()}
 
     def _mine(self, entry: ConfigEntry) -> list[Booking]:
         data = entry.runtime_data.coordinator.data

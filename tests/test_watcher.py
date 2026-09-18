@@ -548,3 +548,76 @@ async def test_a_watch_whose_account_has_no_scheduler_yet_reserves_nothing(
         watch.runtime_data.watcher._aimed_weeks(mock_entry, dt_util.utcnow(), dt_util.utcnow())
         == set()
     )
+
+
+async def test_a_booking_that_disappears_is_remembered_as_given_up(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """The court we cancelled must not be taken back minutes later."""
+    held = mine(3, 20)
+    mock_provider.list_bookings.return_value = [held]
+    await setup_account(hass, mock_entry)
+    # Notify-only: the only booking that can disappear is the one cancelled here.
+    watch = await watch_entry_with_rule(hass, book=False)
+    runner = watch.runtime_data.watcher
+    await runner.async_scan()
+
+    mock_provider.list_bookings.return_value = []
+    await mock_entry.runtime_data.coordinator.async_refresh()
+    await runner.async_scan()
+
+    assert (
+        held.space_ids[0],
+        held.start.isoformat(),
+    ) in mock_entry.runtime_data.store.released_slots()
+
+
+async def test_a_slot_given_up_is_never_caught_again(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    held = mine(3, 20)
+    mock_provider.list_bookings.return_value = [held]
+    await setup_account(hass, mock_entry)
+    watch = await watch_entry_with_rule(hass)
+    runner = watch.runtime_data.watcher
+    await runner.async_scan()
+    mock_provider.list_bookings.return_value = []
+    await mock_entry.runtime_data.coordinator.async_refresh()
+    await runner.async_scan()
+    mock_provider.book.reset_mock()
+
+    caught = await runner.async_scan()
+
+    assert caught is None or caught.start != held.start
+    assert all(call.args[0].start != held.start for call in mock_provider.book.await_args_list)
+
+
+async def test_a_booking_that_merely_aged_out_is_not_a_release(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """A slot that has started leaves the window on its own."""
+    past = mine(0, 8)
+    mock_provider.list_bookings.return_value = [past]
+    await setup_account(hass, mock_entry)
+    # Notify-only: nothing else appears and disappears to muddy the test.
+    watch = await watch_entry_with_rule(hass, book=False)
+    await watch.runtime_data.watcher.async_scan()
+
+    mock_provider.list_bookings.return_value = []
+    await mock_entry.runtime_data.coordinator.async_refresh()
+    await watch.runtime_data.watcher.async_scan()
+
+    assert mock_entry.runtime_data.store.released_slots() == set()
+
+
+async def test_the_first_scan_after_a_restart_releases_nothing(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Nothing to compare against is not the same as everything cancelled."""
+    mock_provider.list_bookings.return_value = [mine(3, 20)]
+    await setup_account(hass, mock_entry)
+    watch = await watch_entry_with_rule(hass)
+
+    await watch.runtime_data.watcher.async_scan()
+
+    assert mock_entry.runtime_data.store.released_slots() == set()

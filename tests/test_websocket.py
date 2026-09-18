@@ -437,3 +437,39 @@ async def test_the_overview_says_when_a_watch_has_nothing_left_to_spend(
     client = await hass_ws_client(hass)
 
     assert (await overview(client))["watches"][0]["gate_open"] is False
+
+
+async def test_cancelling_from_the_panel_marks_the_slot_as_given_up(
+    hass: HomeAssistant,
+    hass_ws_client: Any,
+    mock_entry: MockConfigEntry,
+    mock_provider: AsyncMock,
+) -> None:
+    """Otherwise a watch rule would take the court straight back."""
+    from datetime import timedelta
+
+    from homeassistant.util import dt as dt_util
+
+    start = (dt_util.utcnow() + timedelta(days=3)).replace(microsecond=0)
+    booking = Booking(
+        id="b-cancel-me",
+        space_ids=("2000001",),
+        start=start,
+        end=start + timedelta(hours=1),
+        title="",
+        is_mine=True,
+    )
+    mock_provider.list_bookings.return_value = [booking]
+    await setup_with_job(hass, mock_entry)
+    client = await hass_ws_client(hass)
+
+    await client.send_json_auto_id(
+        {
+            "type": "skedda_scheduler/cancel_booking",
+            "entry_id": mock_entry.entry_id,
+            "booking_id": "b-cancel-me",
+        }
+    )
+    assert (await client.receive_json())["success"]
+
+    assert ("2000001", start.isoformat()) in mock_entry.runtime_data.store.released_slots()

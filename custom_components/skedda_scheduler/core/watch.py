@@ -297,18 +297,26 @@ def evaluate(
     horizon_end: datetime,
     slot_minutes: int,
     reserved: Mapping[str, Collection[tuple[int, int]]] | None = None,
+    released: Collection[tuple[str, str]] | None = None,
 ) -> Catch | None:
     """The one slot worth taking now, or None.
 
     One catch per pass: booking spends an account's hour and changes the
     block, so the next decision has to be made against the world as it then
     is rather than against this snapshot.
+
+    `released` names slots we gave up ourselves. They are free, they match the
+    rules, and taking them back is the last thing anybody wants - somebody
+    cancelled that court on purpose.
     """
+    released = released or ()
     best: tuple[tuple[int, int, int, datetime], Catch] | None = None
     for rule in rules:
         if not rule.enabled:
             continue
         for candidate in candidates(rule, spaces, now, horizon_end, slot_minutes):
+            if (candidate.space_id, candidate.start.isoformat()) in released:
+                continue
             if not is_free(candidate, everyone):
                 continue
             mine_today = _ours_on(candidate.start.date(), ours)

@@ -470,3 +470,41 @@ def test_a_day_that_has_already_started_is_treated_as_imminent() -> None:
     now = datetime(2026, 10, 1, 20, tzinfo=KYIV)
 
     assert interval_for(WatchSpeed.STEPPED, now - timedelta(hours=1), now) == timedelta(minutes=2)
+
+
+def test_a_slot_we_gave_up_ourselves_is_not_taken_back() -> None:
+    """Somebody cancelled that court on purpose. Leave it alone."""
+    start = datetime(2026, 10, 1, 20, tzinfo=KYIV)
+
+    caught = evaluate(
+        [every_day(not_before=time(20, 0), not_after=time(21, 0))],
+        {"acc-a": []},
+        [],
+        60,
+        ALL_SPACES,
+        NOW,
+        datetime(2026, 10, 2, tzinfo=KYIV),
+        60,
+        released=[("court-1", start.isoformat()), ("court-2", start.isoformat())],
+    )
+
+    assert caught is None
+
+
+def test_giving_up_one_slot_does_not_block_the_next_day() -> None:
+    released = [("court-1", datetime(2026, 10, 1, 20, tzinfo=KYIV).isoformat())]
+
+    caught = evaluate(
+        [every_day(not_before=time(20, 0), not_after=time(21, 0))],
+        {"acc-a": []},
+        [],
+        60,
+        ["court-1"],
+        NOW,
+        HORIZON,
+        60,
+        released=released,
+    )
+
+    assert caught is not None
+    assert caught.start.date() != date(2026, 10, 1)
