@@ -101,6 +101,7 @@ async def _async_setup_watch(hass: HomeAssistant, entry: SkeddaConfigEntry) -> b
     )
     entry.async_on_unload(runner.async_shutdown)
     await hass.config_entries.async_forward_entry_setups(entry, WATCH_PLATFORMS)
+    await runner.async_start()
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 

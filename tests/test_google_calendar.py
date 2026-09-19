@@ -21,6 +21,7 @@ from custom_components.skedda_scheduler.const import (
     CONF_ATTENDEES,
     CONF_CALENDAR_ID,
     CONF_ENTRY_KIND,
+    CONF_EVENT_COLOR,
     CONF_EVENT_TITLE,
     CONF_LOCATION,
     DOMAIN,
@@ -139,6 +140,7 @@ async def test_linking_a_calendar_asks_google_then_asks_which_one(
         {
             CONF_CALENDAR_ID: "family@example.com",
             CONF_EVENT_TITLE: "Tennis 🎾",
+            CONF_EVENT_COLOR: "7",
             CONF_LOCATION: "Kyiv, Some Street 12",
             CONF_ATTENDEES: ["oleh@example.com"],
         },
@@ -547,6 +549,7 @@ async def test_the_calendar_settings_can_be_changed_afterwards(
             {
                 CONF_CALENDAR_ID: "family@example.com",
                 CONF_EVENT_TITLE: "Теніс 🎾",
+                CONF_EVENT_COLOR: "9",
                 CONF_LOCATION: "Kyiv",
                 CONF_ATTENDEES: ["vika@example.com"],
             },
@@ -558,3 +561,85 @@ async def test_the_calendar_settings_can_be_changed_afterwards(
     assert linked.data[CONF_ATTENDEES] == ["vika@example.com"]
     # The token is not re-issued by an edit.
     assert linked.data["token"]["refresh_token"] == "refresh"
+
+
+async def test_editing_a_link_made_days_ago_refreshes_the_token_first(
+    hass: HomeAssistant, credentials: None, aioclient_mock: Any
+) -> None:
+    """The stored access token expired within an hour of being issued."""
+    stale = calendar_entry()
+    linked = MockConfigEntry(
+        domain=DOMAIN,
+        title=stale.title,
+        entry_id=stale.entry_id,
+        data={**stale.data, "token": {**stale.data["token"], "expires_at": 0}},
+    )
+    linked.add_to_hass(hass)
+    aioclient_mock.post(
+        "https://oauth2.googleapis.com/token",
+        json={
+            "refresh_token": "r",
+            "access_token": "renewed",
+            "type": "Bearer",
+            "expires_in": 3600,
+        },
+    )
+    seen: list[str] = []
+
+    class Recording:
+        def __init__(self, _session: Any, token: Any, **_kwargs: Any) -> None:
+            self._token = token
+
+        async def list_calendars(self) -> list[GoogleCalendar]:
+            seen.append(await self._token())
+            return CALENDARS
+
+    with patch(
+        "custom_components.skedda_scheduler.google_calendar.GoogleCalendarClient", Recording
+    ):
+        result = await linked.start_reconfigure_flow(hass)
+
+    assert result["step_id"] == "calendar_settings"
+    assert seen == ["renewed"]
+
+
+async def test_the_event_carries_the_colour_and_the_account_that_paid(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Whose hour it was matters: only that account can change or release it."""
+    from dataclasses import replace
+
+    from custom_components.skedda_scheduler.sinks.google_calendar import GoogleCalendarSink
+    from tests.test_sinks import JOB, outcome
+
+    client = AsyncMock()
+    sink = GoogleCalendarSink(
+        hass,
+        client,
+        calendar_id="c1",
+        title="Tennis 🎾",
+        location="ЖК Галактика",
+        attendees=("dkorytkin@example.com",),
+        color_id="9",
+    )
+
+    await sink.async_handle(replace(outcome(succeeded=True), account="Serhii Chuprun"), JOB)
+
+    kwargs = client.create_event.await_args.kwargs
+    assert kwargs["color_id"] == "9"
+    assert kwargs["location"] == "ЖК Галактика"
+    assert "Serhii Chuprun" in kwargs["description"]
+
+
+async def test_a_default_link_writes_blue(hass: HomeAssistant, credentials: None) -> None:
+    """Blue unless somebody chose otherwise."""
+    from custom_components.skedda_scheduler import google_calendar
+
+    linked = calendar_entry()
+    linked.add_to_hass(hass)
+
+    with patch.object(google_calendar, "async_build_client", return_value=AsyncMock()):
+        sink = await google_calendar.async_build_sink(hass)
+
+    assert sink is not None
+    assert sink._color_id == "7"

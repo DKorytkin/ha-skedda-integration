@@ -71,6 +71,9 @@ class BookingOutcome:
     #: Why the run fired nothing at all, when it fired nothing. A run can end
     #: without an attempt: the season is over, or the slot is already ours.
     no_attempt_reason: str | None = None
+    #: Which account holds the booking. A watch rule spends whichever account
+    #: still has quota, so this is the only place the answer exists.
+    account: str | None = None
 
     @property
     def failure_reason(self) -> str | None:
@@ -121,4 +124,5 @@ class BookingOutcome:
             "attempts": len(self.attempts),
             "failure_reason": self.failure_reason,
             "finished_at": self.finished_at.isoformat(),
+            "account": self.account,
         }

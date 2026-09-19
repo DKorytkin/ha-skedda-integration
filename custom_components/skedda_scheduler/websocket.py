@@ -205,11 +205,25 @@ async def websocket_cancel_booking(
     if entry is None or not is_account_entry(entry) or entry.state is not ConfigEntryState.LOADED:
         connection.send_error(msg["id"], "not_loaded", "That account is not set up.")
         return
+    held = next(
+        (
+            booking
+            for booking in entry.runtime_data.coordinator.data.bookings
+            if booking.id == msg["booking_id"]
+        ),
+        None,
+    )
     try:
         await entry.runtime_data.provider.cancel(msg["booking_id"])
     except SkeddaError as err:
         connection.send_error(msg["id"], "cancel_failed", str(err))
         return
+    if held is not None:
+        # Releasing a court on purpose must not read, to a watch rule, as a
+        # court somebody else gave up.
+        await entry.runtime_data.store.async_note_released(
+            held.space_ids[0] if held.space_ids else "", held.start, held.end
+        )
     # The panel reads the diary, so it has to change before the reply lands.
     await entry.runtime_data.coordinator.async_refresh()
     connection.send_result(msg["id"], {"cancelled": msg["booking_id"]})

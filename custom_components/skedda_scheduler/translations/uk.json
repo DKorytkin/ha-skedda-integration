@@ -31,12 +31,14 @@
           "calendar_id": "Календар",
           "event_title": "Назва події",
           "location": "Адреса",
-          "attendees": "Запросити за email"
+          "attendees": "Запросити за email",
+          "event_color": "Колір події"
         },
         "data_description": {
           "calendar_id": "Показані лише календарі, у які ви можете писати.",
           "location": "Показується в події й веде до маршруту.",
-          "attendees": "Google надішле кожному запрошення. Порожньо — бронювати тихо."
+          "attendees": "Google надішле кожному запрошення. Порожньо — бронювати тихо.",
+          "event_color": "Палітра самого Google. Синій, якщо не змінити."
         }
       },
       "reauth_confirm": {

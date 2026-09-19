@@ -14,8 +14,10 @@ from .api.google import GoogleCalendarClient
 from .const import (
     CONF_ATTENDEES,
     CONF_CALENDAR_ID,
+    CONF_EVENT_COLOR,
     CONF_EVENT_TITLE,
     CONF_LOCATION,
+    DEFAULT_EVENT_COLOR,
     DEFAULT_EVENT_TITLE,
     DOMAIN,
     ENTRY_KIND_CALENDAR,
@@ -80,4 +82,5 @@ async def async_build_sink(hass: HomeAssistant) -> GoogleCalendarSink | None:
         title=str(entry.data.get(CONF_EVENT_TITLE) or DEFAULT_EVENT_TITLE),
         location=entry.data.get(CONF_LOCATION) or None,
         attendees=tuple(entry.data.get(CONF_ATTENDEES) or ()),
+        color_id=str(entry.data.get(CONF_EVENT_COLOR) or DEFAULT_EVENT_COLOR),
     )

@@ -10,8 +10,9 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import SIGNAL_CONFIG_ENTRY_CHANGED, ConfigEntry, ConfigEntryChange
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.util import dt as dt_util
 
 from .api.errors import SkeddaError
@@ -19,12 +20,23 @@ from .const import CONF_VENUE, DEFAULT_WINDOW_DAYS, DOMAIN, SUBENTRY_TYPE_WATCH_
 from .coordinator import SkeddaData
 from .core.provider import Booking, BookingRequest
 from .core.result import AttemptStatus, BookingAttempt, BookingOutcome
-from .core.watch import Catch, WatchRule, candidates, evaluate, has_capacity, interval_for
+from .core.watch import (
+    Catch,
+    WatchRule,
+    candidates,
+    evaluate,
+    has_capacity,
+    interval_for,
+    week_of,
+)
 from .entry_kinds import is_account_entry
 from .sinks import async_dispatch
 from .watch_factory import build_rule
 
 _LOGGER = logging.getLogger(__name__)
+
+#: How many occurrences of one job to walk when reserving its weeks.
+_OCCURRENCE_LIMIT = 8
 
 
 def _nearest_start(
@@ -51,6 +63,15 @@ class WatchRunner:
         #: How often this watch is asking the reader to poll, None when idle.
         self.interval: timedelta | None = None
         self._listeners: list[CALLBACK_TYPE] = []
+        #: Unsubscribes from the account coordinators we follow.
+        self._coordinators: list[CALLBACK_TYPE] = []
+        #: Unsubscribes that live as long as the entry does.
+        self._following: list[CALLBACK_TYPE] = []
+        #: What each account held at the previous scan, so a booking that
+        #: vanishes can be recognised as one we gave up.
+        self._held: dict[str, set[tuple[str, str, str]]] = {}
+        #: Which account does the reading this time round.
+        self._reader = 0
 
     @callback
     def async_add_listener(self, listener: CALLBACK_TYPE) -> CALLBACK_TYPE:
@@ -88,11 +109,7 @@ class WatchRunner:
         return found
 
     def accounts(self) -> list[ConfigEntry]:
-        """Loaded accounts for this venue, in a stable order.
-
-        The first is the reader: every account sees the same venue-wide list,
-        so polling with more than one would multiply the traffic for nothing.
-        """
+        """Loaded accounts for this venue, in a stable order."""
         return sorted(
             (
                 entry
@@ -102,11 +119,72 @@ class WatchRunner:
             key=lambda entry: entry.entry_id,
         )
 
+    async def async_start(self) -> None:
+        """Follow the accounts' polls, and look once now.
+
+        The watch has no clock of its own: every scan happens because an
+        account's coordinator brought back a fresh view of the venue. An
+        account that loads or reloads later builds a new coordinator, so this
+        also listens for that rather than assuming the accounts it can see now
+        are the accounts it will have.
+        """
+        self._following.append(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_CONFIG_ENTRY_CHANGED, self._async_entries_changed
+            )
+        )
+        self._follow_accounts()
+        await self.async_scan()
+
+    @callback
+    def _async_entries_changed(self, change: ConfigEntryChange, entry: ConfigEntry) -> None:
+        if entry.domain == DOMAIN and is_account_entry(entry):
+            self._follow_accounts()
+
+    @callback
+    def _follow_accounts(self) -> None:
+        """Subscribe to every account's coordinator, dropping stale ones.
+
+        Re-run on each scan: an account that reloads builds a new coordinator,
+        and a listener left on the old one would never fire again.
+        """
+        for unsub in self._coordinators:
+            unsub()
+        self._coordinators = [
+            entry.runtime_data.coordinator.async_add_listener(self._async_scan_soon)
+            for entry in self.accounts()
+        ]
+
+    @callback
+    def _async_scan_soon(self) -> None:
+        """A poll landed; look at what it brought back."""
+        self.entry.async_create_background_task(
+            self.hass, self._async_scan_quietly(), name="skedda watch scan"
+        )
+
+    async def _async_scan_quietly(self) -> None:
+        try:
+            await self.async_scan()
+        except SkeddaError as err:
+            # A scan is a background task: an exception here would be logged
+            # as "Task exception was never retrieved" and nothing else.
+            _LOGGER.warning("Watch scan failed: %s", err)
+
+    def reader(self, accounts: list[ConfigEntry]) -> ConfigEntry:
+        """Whose session asks the venue this time.
+
+        Every account sees the same venue-wide list, so one reader is enough -
+        but always the same one would be a single account polling all day while
+        the others sit idle. Taking turns spreads the same traffic across the
+        people it belongs to.
+        """
+        return accounts[self._reader % len(accounts)]
+
     async def async_refresh_and_scan(self) -> Catch | None:
         """Re-read the venue first, because something outside says to look."""
         accounts = self.accounts()
         if accounts:
-            await accounts[0].runtime_data.coordinator.async_refresh()
+            await self.reader(accounts).runtime_data.coordinator.async_refresh()
         return await self.async_scan()
 
     async def async_scan(self) -> Catch | None:
@@ -118,14 +196,26 @@ class WatchRunner:
             self._note_interval(accounts, None)
             return None
 
-        data = accounts[0].runtime_data.coordinator.data
+        self._follow_accounts()
+        # Any account's snapshot describes the same venue, so a reader that has
+        # not polled yet is no reason to sit out this round.
+        data = next(
+            (
+                entry.runtime_data.coordinator.data
+                for entry in (self.reader(accounts), *accounts)
+                if entry.runtime_data.coordinator.data is not None
+            ),
+            None,
+        )
         if data is None:
             return None
 
         now = dt_util.utcnow()
         horizon = now + timedelta(days=data.rules.max_days_ahead or DEFAULT_WINDOW_DAYS)
         ours = {entry.entry_id: self._mine(entry) for entry in accounts}
-        self.gate_open = has_capacity(ours, data.rules.weekly_quota_minutes, now, horizon)
+        await self._async_note_releases(accounts, ours, now)
+        reserved = {entry.entry_id: self._aimed_weeks(entry, now, horizon) for entry in accounts}
+        self.gate_open = has_capacity(ours, data.rules.weekly_quota_minutes, now, horizon, reserved)
         self._apply_interval(rules, data, now, horizon)
         if not self.gate_open:
             return None
@@ -139,6 +229,8 @@ class WatchRunner:
             now,
             horizon,
             data.rules.slot_minutes,
+            reserved,
+            self._released(accounts),
         )
         if catch is None:
             return None
@@ -173,13 +265,18 @@ class WatchRunner:
 
     @callback
     def _note_interval(self, accounts: list[ConfigEntry], interval: timedelta | None) -> None:
-        """One reader polls; the others are told to stop on our account."""
+        """One account polls for all of them, and not always the same one."""
         self.interval = interval
         self._notify()
-        for position, entry in enumerate(accounts):
+        if not accounts:
+            return
+        reading = self.reader(accounts)
+        for entry in accounts:
             entry.runtime_data.coordinator.async_note_watch_interval(
-                interval if position == 0 else None
+                interval if entry is reading else None
             )
+        # Next round belongs to somebody else.
+        self._reader = (self._reader + 1) % len(accounts)
 
     async def _async_book(self, catch: Catch, rule: WatchRule) -> bool:
         entry = next(entry for entry in self.accounts() if entry.entry_id == catch.account_id)
@@ -201,6 +298,9 @@ class WatchRunner:
 
     async def _async_report(self, catch: Catch, rule: WatchRule, *, booked: bool) -> None:
         now = dt_util.utcnow()
+        paid_by = next(
+            (entry.title for entry in self.accounts() if entry.entry_id == catch.account_id), None
+        )
         outcome = BookingOutcome(
             job_id=rule.rule_id,
             succeeded=booked,
@@ -217,8 +317,79 @@ class WatchRunner:
                 ),
             ),
             finished_at=now,
+            account=paid_by,
         )
         await async_dispatch(self.entry.runtime_data.sinks, outcome, rule)
+
+    def _aimed_weeks(
+        self, entry: ConfigEntry, now: datetime, horizon_end: datetime
+    ) -> set[tuple[int, int]]:
+        """Weeks this account's booking jobs plan to use.
+
+        Every occurrence inside the horizon, not merely the armed one: a
+        weekly job arms one week at a time, and a watch that spent the weeks
+        it had not reached yet would leave it failing on quota for ever after.
+        The court we planned for beats the one we stumbled on.
+        """
+        scheduler = entry.runtime_data.scheduler
+        if scheduler is None:
+            return set()
+        weeks: set[tuple[int, int]] = set()
+        for runner in scheduler.runners.values():
+            if not runner.job.enabled:
+                continue
+            moment = now
+            # A season is finite and the horizon is a fortnight; the bound is
+            # only a guard against a rule that yields dates for ever.
+            for _ in range(_OCCURRENCE_LIMIT):
+                slot = runner.job.next_slot(moment)
+                if slot is None or slot[0] > horizon_end:
+                    break
+                # A slot the job has already fired at and lost is no longer
+                # spoken for - and is exactly the week a watch exists for.
+                if runner.attempted_slot != slot[0]:
+                    weeks.add(week_of(slot[0]))
+                moment = slot[0]
+        return weeks
+
+    async def _async_note_releases(
+        self,
+        accounts: list[ConfigEntry],
+        ours: dict[str, list[Booking]],
+        now: datetime,
+    ) -> None:
+        """Record bookings of ours that have disappeared since the last scan.
+
+        Whoever cancelled it - the panel, the Skedda app, the venue - the
+        answer is the same: we are not to take that court back on our own.
+        Only slots still in the future count; the rest merely aged out of the
+        window we ask about.
+        """
+        for entry in accounts:
+            held = {
+                (
+                    booking.space_ids[0] if booking.space_ids else "",
+                    booking.start.isoformat(),
+                    booking.end.isoformat(),
+                )
+                for booking in ours.get(entry.entry_id, ())
+            }
+            previous = self._held.get(entry.entry_id)
+            self._held[entry.entry_id] = held
+            if previous is None:
+                # First scan of this run: nothing to compare against, and
+                # treating everything as released would block the lot.
+                continue
+            for space_id, start, end in previous - held:
+                moment = dt_util.parse_datetime(start)
+                if moment is not None and moment > now:
+                    await entry.runtime_data.store.async_note_released(
+                        space_id, moment, dt_util.parse_datetime(end) or moment
+                    )
+
+    def _released(self, accounts: list[ConfigEntry]) -> set[tuple[str, str]]:
+        """Every slot any of our accounts gave up."""
+        return {slot for entry in accounts for slot in entry.runtime_data.store.released_slots()}
 
     def _mine(self, entry: ConfigEntry) -> list[Booking]:
         data = entry.runtime_data.coordinator.data
@@ -234,5 +405,9 @@ class WatchRunner:
 
     @callback
     def async_shutdown(self) -> None:
-        """The watch holds no timer and no session; only its listeners."""
+        """The watch holds no timer and no session; only its subscriptions."""
+        for unsub in (*self._coordinators, *self._following):
+            unsub()
+        self._coordinators.clear()
+        self._following.clear()
         self._listeners.clear()

@@ -35,6 +35,16 @@ sign-in method.
 
 ## Common situations
 
+### The watch will not take back a slot I cancelled
+
+By design. A booking of yours that disappears - cancelled from the panel, from
+Skedda, or by the venue - is recorded as released, and no rule will take that
+slot again. Somebody gave that court up on purpose, and taking it back
+automatically is the one behaviour nobody wants.
+
+The record is kept with the account's attempt history and disappears once the
+slot's own time has passed.
+
 ### The watch never catches anything
 
 Its sensor says what it is doing. `No quota left` is the ordinary resting

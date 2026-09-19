@@ -54,6 +54,13 @@ def add_job_subentry(
     return subentry_id
 
 
+async def setup_account(hass: HomeAssistant, entry: MockConfigEntry) -> None:
+    """An account with no booking job: nothing has a claim on its quota."""
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+
 async def setup_with_job(hass: HomeAssistant, entry: MockConfigEntry, **overrides: Any) -> str:
     entry.add_to_hass(hass)
     subentry_id = add_job_subentry(hass, entry, **overrides)

@@ -88,7 +88,10 @@ diary does not change unless we change it.
 ### While a slot watch is running
 
 A watch raises the poll rate of one account - never all of them - and only
-while some account still has quota in the horizon. When every hour is spent the
+while some account still has quota in the horizon. Which account does the
+reading rotates between rounds, so the requests are spread across the members
+rather than falling on whoever happens to be first. Booking is separate: that
+is always an account with quota left. When every hour is spent the
 watch asks for nothing and the account returns to the table above.
 
 | Nearest day it cares about | Calm | Stepped | Fast |

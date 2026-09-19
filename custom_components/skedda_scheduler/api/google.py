@@ -94,6 +94,7 @@ class GoogleCalendarClient:
         location: str | None = None,
         description: str | None = None,
         attendees: tuple[str, ...] = (),
+        color_id: str | None = None,
     ) -> GoogleEvent:
         """Put the booking in the calendar and invite whoever should come."""
         payload: dict[str, Any] = {
@@ -107,6 +108,10 @@ class GoogleCalendarClient:
             payload["description"] = description
         if attendees:
             payload["attendees"] = [{"email": email} for email in attendees]
+        if color_id:
+            # Google's own palette, by number: the API takes no colour names
+            # and no hex values.
+            payload["colorId"] = color_id
 
         body = await self._request(
             "POST",

@@ -31,6 +31,7 @@ class GoogleCalendarSink:
         title: str,
         location: str | None,
         attendees: tuple[str, ...],
+        color_id: str | None = None,
     ) -> None:
         self._hass = hass
         self._client = client
@@ -38,6 +39,7 @@ class GoogleCalendarSink:
         self._title = title
         self._location = location
         self._attendees = attendees
+        self._color_id = color_id
 
     async def async_handle(self, outcome: BookingOutcome, subject: BookingSubject) -> None:
         if not outcome.succeeded:
@@ -52,6 +54,7 @@ class GoogleCalendarSink:
                 location=self._location,
                 description=_description(outcome, subject),
                 attendees=self._attendees,
+                color_id=self._color_id,
             )
         except SkeddaError as err:
             # The court is booked either way; losing the calendar entry must
@@ -62,8 +65,14 @@ class GoogleCalendarSink:
 
 
 def _description(outcome: BookingOutcome, subject: BookingSubject) -> str:
-    """Enough to find the booking again, and nothing anybody has to read."""
+    """Enough to find the booking again, and nothing anybody has to read.
+
+    The account matters when several people book for the same group: the court
+    is held by one of them, and only that one can change or release it.
+    """
     lines = [subject.name]
+    if outcome.account:
+        lines.append(f"Booked with: {outcome.account}")
     if outcome.booking_id:
         lines.append(f"Skedda booking {outcome.booking_id}")
     return "\n".join(lines)

@@ -26,13 +26,14 @@ from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import callback
 from homeassistant.helpers import config_entry_oauth2_flow
 
+from . import google_calendar
 from .api.errors import (
     SignInBlockedError,
     SkeddaAuthError,
     SkeddaConnectionError,
     SkeddaError,
 )
-from .api.google import SCOPES
+from .api.google import SCOPES, GoogleCalendarClient
 from .const import (
     CONF_ALIAS,
     CONF_ENTRY_KIND,
@@ -70,6 +71,8 @@ class SkeddaConfigFlow(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, domai
     def __init__(self) -> None:
         super().__init__()
         self._token_data: dict[str, Any] = {}
+        #: Set only when editing a calendar that was linked some time ago.
+        self._client: GoogleCalendarClient | None = None
 
     @property
     def logger(self) -> logging.Logger:
@@ -116,7 +119,7 @@ class SkeddaConfigFlow(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, domai
     async def async_step_calendar_settings(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        return await async_calendar_step(self, self._token_data, user_input)
+        return await async_calendar_step(self, self._token_data, user_input, client=self._client)
 
     async def async_step_account(
         self, user_input: dict[str, Any] | None = None
@@ -175,6 +178,9 @@ class SkeddaConfigFlow(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, domai
             # Who comes to tennis changes more often than the Google account
             # does, so this edits the settings without asking Google again.
             self._token_data = dict(entry.data)
+            # The stored access token expired within an hour of being issued;
+            # only the entry's own session knows how to renew it.
+            self._client = await google_calendar.async_build_client(self.hass, entry)
             return await self.async_step_calendar_settings(user_input)
         return await self.async_step_account_reconfigure(user_input)
 

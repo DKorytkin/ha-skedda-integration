@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
@@ -15,14 +16,36 @@ from ..const import (
     CONF_ATTENDEES,
     CONF_CALENDAR_ID,
     CONF_ENTRY_KIND,
+    CONF_EVENT_COLOR,
     CONF_EVENT_TITLE,
     CONF_LOCATION,
+    DEFAULT_EVENT_COLOR,
     DEFAULT_EVENT_TITLE,
     ENTRY_KIND_CALENDAR,
 )
 
 if TYPE_CHECKING:
     from ..config_flow import SkeddaConfigFlow
+
+_LOGGER = logging.getLogger(__name__)
+
+
+#: Google's event palette. The API takes these numbers and nothing else - no
+#: names, no hex - so the names here are ours, chosen to match what Google
+#: shows in its own colour picker.
+COLOR_OPTIONS = [
+    selector.SelectOptionDict(value="7", label="Blue (Peacock)"),
+    selector.SelectOptionDict(value="9", label="Dark blue (Blueberry)"),
+    selector.SelectOptionDict(value="10", label="Green (Basil)"),
+    selector.SelectOptionDict(value="2", label="Light green (Sage)"),
+    selector.SelectOptionDict(value="5", label="Yellow (Banana)"),
+    selector.SelectOptionDict(value="6", label="Orange (Tangerine)"),
+    selector.SelectOptionDict(value="11", label="Red (Tomato)"),
+    selector.SelectOptionDict(value="4", label="Pink (Flamingo)"),
+    selector.SelectOptionDict(value="3", label="Purple (Grape)"),
+    selector.SelectOptionDict(value="1", label="Lavender"),
+    selector.SelectOptionDict(value="8", label="Grey (Graphite)"),
+]
 
 
 def settings_schema(calendars: list[tuple[str, str]], defaults: dict[str, Any]) -> vol.Schema:
@@ -42,6 +65,9 @@ def settings_schema(calendars: list[tuple[str, str]], defaults: dict[str, Any]) 
             vol.Required(
                 CONF_EVENT_TITLE, default=defaults.get(CONF_EVENT_TITLE, DEFAULT_EVENT_TITLE)
             ): selector.TextSelector(),
+            vol.Required(
+                CONF_EVENT_COLOR, default=defaults.get(CONF_EVENT_COLOR, DEFAULT_EVENT_COLOR)
+            ): selector.SelectSelector(selector.SelectSelectorConfig(options=COLOR_OPTIONS)),
             vol.Optional(
                 CONF_LOCATION, default=defaults.get(CONF_LOCATION, "")
             ): selector.TextSelector(),
@@ -57,34 +83,48 @@ async def async_calendar_step(
     token_data: dict[str, Any],
     user_input: dict[str, Any] | None,
     defaults: dict[str, Any] | None = None,
+    client: GoogleCalendarClient | None = None,
 ) -> ConfigFlowResult:
     """Ask which calendar to write to, listing the ones Google allows.
 
-    The token has just been issued, so the list is fetched with it directly
-    rather than through a config entry that does not exist yet.
+    Straight after linking, the token in hand is minutes old and is used as it
+    is. Editing an entry set up days ago is the opposite case: that token
+    expired within the hour, so the caller passes a client that refreshes.
     """
     if user_input is not None:
         return async_create_calendar_entry(flow, token_data, user_input)
 
     defaults = defaults or {
         key: token_data[key]
-        for key in (CONF_CALENDAR_ID, CONF_EVENT_TITLE, CONF_LOCATION, CONF_ATTENDEES)
+        for key in (
+            CONF_CALENDAR_ID,
+            CONF_EVENT_TITLE,
+            CONF_EVENT_COLOR,
+            CONF_LOCATION,
+            CONF_ATTENDEES,
+        )
         if key in token_data
     }
 
     # Home Assistant's own session: it owns the lifetime, and closing it here
     # would take every other integration's requests down with it. Google needs
     # no cookie jar of its own, unlike the venue.
-    session = async_get_clientsession(flow.hass)
+    if client is None:
+        session = async_get_clientsession(flow.hass)
 
-    async def token() -> str:
-        return str(token_data["token"]["access_token"])
+        async def token() -> str:
+            return str(token_data["token"]["access_token"])
+
+        client = GoogleCalendarClient(session, token)
 
     try:
-        calendars = await GoogleCalendarClient(session, token).list_calendars()
-    except SkeddaError:
+        calendars = await client.list_calendars()
+    except SkeddaError as err:
         # Nothing to choose from means nothing to save; saying so beats an
-        # empty dropdown the user cannot get past.
+        # empty dropdown the user cannot get past. The reason goes to the log
+        # because the dialog has nowhere to put it, and without it the abort
+        # is indistinguishable from every other way this can fail.
+        _LOGGER.warning("Could not list the Google calendars: %s", err)
         return flow.async_abort(reason="calendar_list_failed")
 
     if not calendars:

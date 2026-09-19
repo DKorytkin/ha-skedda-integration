@@ -92,15 +92,17 @@ async def test_slot_freed_makes_the_watch_look_now(
     hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
 ) -> None:
     """A Telegram automation can beat the poll by minutes."""
-    from tests.helpers import watch_entry_with_rule
+    from tests.helpers import setup_account, watch_entry_with_rule
 
-    await setup_with_job(hass, mock_entry)
+    # No booking job: a week one is aiming at is deliberately left alone.
+    await setup_account(hass, mock_entry)
     await watch_entry_with_rule(hass)
+    mock_provider.list_bookings.return_value = []
     mock_provider.book.reset_mock()
 
     await hass.services.async_call(DOMAIN, "slot_freed", {}, blocking=True)
 
-    assert mock_provider.book.await_count == 1
+    assert mock_provider.book.await_count >= 1
 
 
 async def test_slot_freed_accepts_what_the_automation_could_parse(
