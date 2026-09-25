@@ -29,6 +29,7 @@ const STRINGS = {
     manageJobs: "Manage",
     existingBookings: "Existing bookings",
     bookingJobs: "Booking jobs",
+    job: "Job",
     when: "When",
     court: "Court",
     nextSlot: "Next slot",
@@ -70,6 +71,7 @@ const STRINGS = {
     manageJobs: "Змінити",
     existingBookings: "Наявні бронювання",
     bookingJobs: "Завдання бронювання",
+    job: "Завдання",
     when: "Коли",
     court: "Корт",
     nextSlot: "Наступний слот",
@@ -260,7 +262,7 @@ class SkeddaPanel extends HTMLElement {
       ${card(
         t.bookingJobs,
         `<a class="button" href="${SETTINGS_URL}">${esc(t.manageJobs)}</a>`,
-        [t.nextSlot, t.court, t.account, t.status],
+        [t.nextSlot, t.job, t.court, t.account, t.status],
         jobs.map((job) => jobRow(t, job)),
         t.noJobs,
       )}
@@ -336,6 +338,7 @@ function jobRow(t, job) {
   // ways to the same place read as two different places.
   return `<tr>
     <td>${job.next_slot ? when(job.next_slot) : `<span class="muted">—</span>`}</td>
+    <td>${esc(job.name)}</td>
     <td>${esc(job.court)}${repeat}</td>
     <td>${esc(job.account)}</td>
     <td>${detail}</td>
