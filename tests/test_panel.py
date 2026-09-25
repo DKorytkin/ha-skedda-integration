@@ -147,3 +147,17 @@ def test_the_panel_survives_an_instance_with_no_watch() -> None:
     source = PANEL_JS.read_text(encoding="utf-8")
 
     assert "(watches || [])" in source
+
+
+def test_each_job_row_says_which_job_it_is() -> None:
+    """Five rows of "Tennis (weekly)" do not say which is Sunday's and which is
+    Tuesday's; the name the job was given does."""
+    source = PANEL_JS.read_text(encoding="utf-8")
+
+    job_row = source.split("function jobRow(")[1].split("\nfunction ")[0]
+    assert "esc(job.name)" in job_row
+    jobs_card = source.split("t.bookingJobs,")[1].split("t.noJobs")[0]
+    assert "t.job," in jobs_card
+    for language in ("en", "uk"):
+        strings = source.split(f"  {language}: {{")[1].split("\n  },")[0]
+        assert "\n    job: " in strings, f"no heading for the job in {language}"

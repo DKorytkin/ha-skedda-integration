@@ -10,7 +10,7 @@ around it.
 account responsible:
 
 - **Bookings** — the court times this account holds.
-- **Booking jobs** — what will be booked next, and when its window opens.
+- **Booking jobs** — each job by name, what it will book next, and when its window opens.
 - **Accounts** — green when the account can sign in, red when it cannot.
 
 It is a view, not an editor. Adding and editing open Home Assistant's own
