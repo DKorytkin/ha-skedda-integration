@@ -75,19 +75,111 @@ A test that asserts something always true is worse than no test at all.
 - If behaviour changes, update the page under `docs/` that describes it in the same
   commit. Two copies of the truth drift; one does not.
 
-## Before the first public release
+## Trying a change on a real Home Assistant
 
-One check is deliberately skipped in CI and needs closing before this integration
-can be listed in the default HACS catalogue:
+The test suite cannot show you the sidebar panel, a venue's real replies, or
+several accounts starting together. Before releasing, run the change on a Home
+Assistant instance you control.
 
-- **Brand assets.** `skedda_scheduler` is not in
-  [home-assistant/brands](https://github.com/home-assistant/brands), which wants an
-  icon and a logo submitted as a pull request there. Until that lands,
-  `.github/workflows/validate.yml` passes `ignore: brands` to the HACS action.
-  Installing as a custom repository works without it; being listed does not.
-  Remove the `ignore` line once the brands pull request is merged.
+### Copy the files across
 
-  The images are ready in [`assets/brands/`](assets/brands), and
-  [`assets/README.md`](assets/README.md) explains what to submit and the one
-  decision still open: they are rendered in near-black rather than Skedda's own
-  brand colour.
+Home Assistant loads the integration from
+`/config/custom_components/skedda_scheduler`. Replace that directory with your
+working copy and restart:
+
+```bash
+rsync -a --delete --exclude __pycache__ \
+  custom_components/skedda_scheduler/ \
+  root@homeassistant.local:/config/custom_components/skedda_scheduler/
+```
+
+On Home Assistant OS this needs the **Advanced SSH & Web Terminal** add-on (or
+the plain **Terminal & SSH** one) with your public key added. The **Samba share**
+add-on works too: copy the directory over `\\homeassistant.local\config`.
+
+Then restart from **Settings → System → Restart**; reloading the entry is not
+enough, because Python keeps the modules it already imported.
+
+HACS will offer to "update" over your copy on the next release. That is expected:
+once the change is released, accept it and you are back on a tracked version.
+
+### Or publish a pre-release
+
+To try a build through HACS itself, the same path users take:
+
+1. Set `version` in `manifest.json` to a pre-release, e.g. `0.2.1b1`.
+2. Push it and publish a GitHub release marked **pre-release**, tagged `v0.2.1b1`.
+3. Let HACS offer pre-releases for this repository: under **Settings → Devices &
+   Services → HACS**, open the **Skedda Scheduler** device and enable its
+   **Pre-release** switch (it is disabled by default).
+4. In HACS, open **Skedda Scheduler**, then the three-dot menu → **Redownload**,
+   choose `v0.2.1b1`, and restart.
+
+Nobody else is offered a pre-release unless they enable that switch too.
+
+### What to look at
+
+- **Settings → System → Logs**, filtered by `skedda_scheduler`. For more detail,
+  add to `configuration.yaml`:
+
+  ```yaml
+  logger:
+    logs:
+      custom_components.skedda_scheduler: debug
+  ```
+
+- The **Skedda** panel in the sidebar. It is cached by a fingerprint of the
+  script, so a changed panel shows up after a restart without clearing the
+  browser cache.
+- Every account under **Settings → Devices & Services** is loaded, not "Failed
+  to set up".
+
+## Releasing
+
+HACS offers users whatever GitHub release is marked latest. A release is:
+
+1. Bump `version` in `custom_components/skedda_scheduler/manifest.json`, following
+   [semantic versioning](https://semver.org/): a fix is a patch, a new capability a
+   minor.
+2. Commit it on `main` as `chore: release X.Y.Z` and push. Wait for CI to pass.
+3. Publish the release, with the tag prefixed by `v`:
+
+   ```bash
+   gh release create vX.Y.Z --target main --title vX.Y.Z --generate-notes
+   ```
+
+`.github/workflows/release.yml` fails the release if the tag and `manifest.json`
+disagree. When it does, delete the release and the tag, fix the version, and
+publish again: HACS compares the tag with the installed `manifest.json`, so a
+mismatch offers users the same update over and over.
+
+## Listing in the HACS default catalogue
+
+Until the integration is listed, users add it to HACS as a custom repository
+(see [docs/installation.md](docs/installation.md)). Listing it lets them find it
+by searching HACS, without pasting a URL.
+
+HACS checks these before accepting a repository
+([its requirements](https://www.hacs.xyz/docs/publish/include/)):
+
+- The repository is public, has a description and topics, and has issues enabled.
+- `manifest.json` and `hacs.json` are valid.
+- Brand images exist. They ship in
+  [`custom_components/skedda_scheduler/brand/`](custom_components/skedda_scheduler/brand);
+  since Home Assistant 2026.3 no pull request to home-assistant/brands is needed.
+  [`assets/README.md`](assets/README.md) describes the files.
+- The **Validate** workflow (the HACS action and hassfest) passes on `main`.
+- There is a full GitHub release, not just a tag, published after those checks
+  passed.
+
+Then submit it:
+
+1. Fork [hacs/default](https://github.com/hacs/default) and create a branch there
+   (not `master`).
+2. Add `DKorytkin/ha-skedda-integration` to the `integration` file, in
+   alphabetical order rather than at the end.
+3. Open a pull request and fill in its template. It must come from the owner of
+   this repository.
+
+HACS's own checks run on the pull request. Once it is merged, the integration
+appears after HACS's next scheduled scan.

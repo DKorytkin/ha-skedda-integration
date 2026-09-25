@@ -23,6 +23,7 @@ PANEL_URL = "skedda"
 PANEL_NAME = "skedda-panel"
 SCRIPT_URL = f"/{DOMAIN}/skedda-panel.js"
 SCRIPT_PATH = Path(__file__).parent / "skedda-panel.js"
+PANEL_REGISTERED = f"{DOMAIN}_panel_registered"
 
 
 def script_version() -> str:
@@ -40,21 +41,29 @@ async def async_register_panel(hass: HomeAssistant) -> None:
 
     Admin only: the overview it renders names the venue and every account.
     """
-    if PANEL_URL in hass.data.get("frontend_panels", {}):
-        # A second account must not fail to set up because the first one
-        # already registered the panel.
+    # Claimed before the first await, not inferred from the panel existing:
+    # at startup every account is set up at once, and the panel only appears
+    # after the awaits below, by when a second account has already decided to
+    # register the same route again.
+    if hass.data.get(PANEL_REGISTERED):
         return
+    hass.data[PANEL_REGISTERED] = True
 
-    await hass.http.async_register_static_paths(
-        [StaticPathConfig(SCRIPT_URL, str(SCRIPT_PATH), cache_headers=False)]
-    )
-    await panel_custom.async_register_panel(
-        hass,
-        webcomponent_name=PANEL_NAME,
-        frontend_url_path=PANEL_URL,
-        module_url=f"{SCRIPT_URL}?v={await hass.async_add_executor_job(script_version)}",
-        sidebar_title="Skedda",
-        sidebar_icon="mdi:tennis",
-        require_admin=True,
-    )
+    try:
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(SCRIPT_URL, str(SCRIPT_PATH), cache_headers=False)]
+        )
+        await panel_custom.async_register_panel(
+            hass,
+            webcomponent_name=PANEL_NAME,
+            frontend_url_path=PANEL_URL,
+            module_url=f"{SCRIPT_URL}?v={await hass.async_add_executor_job(script_version)}",
+            sidebar_title="Skedda",
+            sidebar_icon="mdi:tennis",
+            require_admin=True,
+        )
+    except Exception:
+        # Left claimed, no later account or reload would try again.
+        hass.data.pop(PANEL_REGISTERED, None)
+        raise
     _LOGGER.debug("Registered the Skedda panel at /%s", PANEL_URL)
