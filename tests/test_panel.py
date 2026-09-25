@@ -3,14 +3,22 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
+import pytest
 from homeassistant.components import frontend
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.skedda_scheduler.const import DOMAIN
-from custom_components.skedda_scheduler.panel import PANEL_URL, SCRIPT_URL, script_version
+from custom_components.skedda_scheduler.panel import (
+    PANEL_URL,
+    SCRIPT_URL,
+    async_register_panel,
+    script_version,
+)
 from tests.helpers import setup_with_job
 
 PANEL_JS = Path("custom_components/skedda_scheduler/panel/skedda-panel.js")
@@ -39,6 +47,39 @@ async def test_the_panel_is_registered_once_for_any_number_of_accounts(
 
     assert await hass.config_entries.async_setup(other.entry_id)
     await hass.async_block_till_done()
+
+    assert PANEL_URL in hass.data[frontend.DATA_PANELS]
+
+
+async def test_accounts_set_up_together_register_the_panel_once(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """At startup Home Assistant sets every account up at once, so the second
+    one reaches the registration while the first is still inside it."""
+    mock_entry.add_to_hass(hass)
+    other = MockConfigEntry(domain=DOMAIN, data=dict(mock_entry.data), entry_id="entry-2")
+    other.add_to_hass(hass)
+
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+
+    assert mock_entry.state is ConfigEntryState.LOADED
+    assert other.state is ConfigEntryState.LOADED
+    assert PANEL_URL in hass.data[frontend.DATA_PANELS]
+
+
+async def test_a_failed_registration_is_tried_again(hass: HomeAssistant) -> None:
+    """Otherwise one bad start leaves the sidebar empty until a restart."""
+    await async_setup_component(hass, "http", {})
+    with (
+        patch.object(
+            hass.http, "async_register_static_paths", side_effect=OSError("disk"), autospec=True
+        ),
+        pytest.raises(OSError),
+    ):
+        await async_register_panel(hass)
+
+    await async_register_panel(hass)
 
     assert PANEL_URL in hass.data[frontend.DATA_PANELS]
 
