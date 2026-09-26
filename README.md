@@ -141,24 +141,18 @@ automation:
             - switch.court_2_saturdays_18_00_job_enabled
 ```
 
-### Look for a freed slot as soon as somebody cancels
+### Tell the slot watch to look now
 
-If your venue announces cancellations somewhere Home Assistant can hear — a
-Telegram channel, say — tell the slot watch to look now instead of at its next
-poll:
+The watch looks on its own schedule. If something in Home Assistant learns
+about a cancellation sooner, any automation or script can ask it to look
+immediately:
 
 ```yaml
-automation:
-  - alias: Venue says a court is free
-    triggers:
-      - trigger: event
-        event_type: telegram_text
-    conditions:
-      - condition: template
-        value_template: "{{ 'cancelled' in trigger.event.data.text | lower }}"
-    actions:
-      - action: skedda_scheduler.slot_freed
+action: skedda_scheduler.slot_freed
 ```
+
+The call only decides *when* to look. The watch re-reads the venue and applies
+its own rules, so a false alarm costs one refresh of the venue's diary.
 
 More entities, the event payload and further examples in
 [docs/usage.md](https://github.com/DKorytkin/ha-skedda-integration/blob/main/docs/usage.md).
