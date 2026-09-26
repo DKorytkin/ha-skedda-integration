@@ -18,7 +18,7 @@ clock, then reports what happened as entities, events and notifications.
 
 ## Status
 
-v0.2.0. Home Assistant 2026.3.0 or newer.
+v0.3.0. Home Assistant 2026.3.0 or newer.
 
 It books: the first courts were taken by the integration running inside Home
 Assistant on 16 September 2026. Treat it as young software all the same —
