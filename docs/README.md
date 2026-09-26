@@ -18,18 +18,18 @@ events and notifications.
 | Page | Contents |
 |---|---|
 | [Installation](installation.md) | Installing through HACS, requirements, updating |
-| [Configuration](configuration.md) | Adding an account, creating a booking job, every field explained |
-| [Usage](usage.md) | Entities, services, events, automation examples |
+| [Configuration](configuration.md) | Accounts, booking jobs, slot watch, Google Calendar, every field explained |
+| [Usage](usage.md) | Panel, entities, services, events, automation examples |
 | [Architecture](architecture.md) | How the integration is put together and why |
 | [Troubleshooting](troubleshooting.md) | Diagnostics, repair issues, common failures |
 
-The **Skedda** panel in the sidebar shows bookings, jobs and accounts at a
-glance, and each account publishes calendars that Home Assistant's own calendar
+The **Skedda** panel in the sidebar shows accounts, bookings, jobs and watch
+rules at a glance, and each account publishes calendars that Home Assistant's own calendar
 view renders by week or by month.
 
 ## Features
 
-- **Recurring bookings** — weekly or fortnightly, bounded by a season start and end date.
+- **Recurring bookings** — once, weekly or fortnightly, until an optional end date.
 - **Booking-window awareness** — you declare how far ahead the venue opens
   reservations; the integration derives the exact instant each slot unlocks, in the
   venue's own timezone, and refuses a job the venue's rules make impossible.
@@ -39,6 +39,8 @@ view renders by week or by month.
   booking job to one of them.
 - **Visible results** — every attempt is recorded, exposed as entities, published on
   the event bus, and optionally pushed to a notification service.
+- **Slot watch** — rules for what you would take if somebody gave it up, booked
+  with whichever account still has allowance that week.
 - **Google Calendar** — optionally, every booking that lands becomes an event
   with the people who are coming invited to it.
 

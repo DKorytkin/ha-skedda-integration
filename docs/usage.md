@@ -6,14 +6,17 @@ around it.
 
 ## The Skedda panel
 
-**Skedda** in the sidebar shows three tables, each sorted and each naming the
-account responsible:
+**Skedda** in the sidebar shows every account at the top - green when it can
+sign in, red when it cannot - and three tables below:
 
-- **Bookings** — the court times this account holds, grouped by day, with today
-  and tomorrow marked. The court is named only when bookings are on different
-  courts; ✕ releases a booking after asking.
-- **Booking jobs** — each job by name, what it will book next, and when its window opens.
-- **Accounts** — green when the account can sign in, red when it cannot.
+- **Existing bookings** — the court times your accounts hold, grouped by day,
+  with today and tomorrow marked and the account named on each. The court is
+  named only when bookings are on different courts; ✕ releases a booking after
+  asking.
+- **Booking jobs** — each job by name, what it will book next, and when its
+  window opens.
+- **Watching for freed slots** — each watch rule, its days and hours, whether it
+  is looking and how often, and its last catch.
 
 It is a view, not an editor. Adding and editing open Home Assistant's own
 dialogs, so there is one implementation of the forms rather than two.
@@ -60,6 +63,15 @@ authentication sensor - carries the account in its own entity id.
 |---|---|---|
 | `Authentication` | binary sensor (problem) | `on` means the account cannot currently be used — wrong password, or the venue is unreachable. |
 
+### Per watch rule
+
+Each rule becomes a device of its own:
+
+| Entity | Type | Meaning |
+|---|---|---|
+| `Watch` | sensor | `watching`, `disabled` when the rule is switched off, or `no_quota` when no account has anything left to spend. Attributes: `gate_open`, `poll_interval_minutes`, `courts`, `days`, `hours`, `last_catch`. |
+| `Rule enabled` | switch | Pauses or resumes the rule without deleting it. |
+
 ## How often it talks to the venue
 
 The integration is quiet by design. Each job arms a single timer for the moment
@@ -102,7 +114,8 @@ watch asks for nothing and the account returns to the table above.
 | within 2 days | 15 min | 5 min | 2 min |
 | within 6 hours | 5 min | 2 min | 1 min |
 
-At the default speed that is 700-1000 requests a week while the gate is open.
+At the default speed that is 700-1,000 looks - 1,400-2,000 requests - a week
+while the gate is open.
 See [Configuration](configuration.md#what-it-costs-the-venue).
 
 ## Google Calendar
@@ -149,27 +162,12 @@ data:
   start: "2026-10-01T20:00:00"      # optional
 ```
 
-Every field is optional, and none of them is trusted: the call decides *when*
-to look, never *what* to take. The watch re-reads the venue and applies its own
-rules, so a message that turns out to be wrong costs one request.
+Both fields are accepted but not used: the call decides *when* to look, never
+*what* to take. The watch re-reads the venue and applies its own rules, so a
+false alarm costs one refresh of the venue's diary.
 
-This is how a venue's Telegram channel becomes a trigger. The integration
-parses no Telegram text - extracting a court and a time from a message belongs
-in the automation, where it is easy to fix when the bot changes its wording:
-
-```yaml
-triggers:
-  - trigger: event
-    event_type: telegram_text
-conditions:
-  - condition: template
-    value_template: "{{ 'cancelled' in trigger.event.data.text | lower }}"
-actions:
-  - action: skedda_scheduler.slot_freed
-```
-
-A Telegram bot cannot read a channel's posts unless it is an administrator of
-that channel.
+Any automation that hears about a cancellation before the next poll can call
+it. The integration itself listens to nothing but the venue.
 
 ## Events
 
@@ -195,6 +193,7 @@ Payload:
 | `attempts` | integer | How many requests the run made. |
 | `failure_reason` | string or null | Why the run failed, if it did. |
 | `finished_at` | ISO 8601 | When the run ended. |
+| `account` | string or null | The account the booking was made with. |
 
 ## Automation examples
 

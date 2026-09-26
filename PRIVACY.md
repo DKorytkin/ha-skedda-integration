@@ -10,8 +10,8 @@ to it or to anything it holds.
 
 ## What it stores, and where
 
-Everything stays in your Home Assistant instance, in its own encrypted
-configuration storage:
+Everything stays in your Home Assistant instance, in its own storage - the
+`.storage` directory inside your configuration folder:
 
 | Kept | Why |
 |---|---|
@@ -19,7 +19,14 @@ configuration storage:
 | Google OAuth tokens | To create calendar events. Issued to the OAuth client **you** created in your own Google Cloud project. |
 | Your booking jobs, and what each attempt did | To book the right court at the right moment, and to show you what happened. |
 
-Credentials are redacted from logs and from the diagnostics download.
+That storage is plain JSON, as it is for almost every Home Assistant
+integration: it is **not encrypted**. Anyone who can read your configuration
+folder - through an SSH or Samba add-on, a file editor, or a copy of your
+backups - can read the Skedda password and the Google tokens. Limit who has that
+access, and protect your backups with a password.
+
+The Skedda email and password are removed from the diagnostics download and are
+never written to the log.
 
 ## Who it talks to
 

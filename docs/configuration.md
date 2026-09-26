@@ -15,10 +15,10 @@ Configuration has two levels:
 
 | Field | Meaning |
 |---|---|
-| **Venue subdomain** | The venue part of your Skedda address. For `https://myclub.skedda.com` this is `myclub`. |
+| **Venue** | The venue part of your Skedda address. For `https://myclub.skedda.com` this is `myclub`. |
 | **Email** | The email address you sign in with. |
-| **Password** | The matching password. Stored in Home Assistant's encrypted storage. |
-| **Account name** | A label you choose, shown throughout the interface — for example `Main account` or `Partner account`. |
+| **Password** | The matching password. Kept in Home Assistant's own storage, which is not encrypted - see [Privacy](../PRIVACY.md). |
+| **Name** | A label you choose, shown throughout the interface — for example `Main account` or `Partner account`. |
 
 The credentials are verified before the entry is created, and the check goes further
 than signing in: Skedda authenticates centrally, so a typo in the venue subdomain
@@ -36,8 +36,9 @@ settings during setup and refreshed on every poll, rather than being asked for.
 
 ### Adding more accounts
 
-Repeat the same steps. Each account becomes a separate entry with its own device and
-its own booking jobs. The same account cannot be added twice.
+Repeat the same steps. Each account becomes a separate entry with its own booking
+jobs; the account itself has no device, each of its jobs does. The same account
+cannot be added twice.
 
 ### Changing a password
 
@@ -141,7 +142,9 @@ be harder to change than an unknown one is to create.
 A season is the stretch during which the job is allowed to run - typically the
 months your venue subscription is paid for. Set **Repeat until** to the last
 date; outside it the job's status reads *Out of season*, no timer is armed, and
-the account stops being polled. Extend the date when the new season starts.
+the account drops to one poll every twelve hours - enough to notice a password
+that stopped working before the next season. Extend the date when the new season
+starts.
 
 ### Limits the form will not let you past
 
@@ -166,10 +169,10 @@ add one rule per thing you want caught.
 
 ### Why the watch is not part of an account
 
-Accounts are interchangeable here. Each is one hour a week, and a rule does not
-care which of them pays - so when a slot appears, the watch spends whichever
-account still has an hour that week. Three accounts are what three hours in a
-row costs.
+Accounts are interchangeable here. Each has the venue's weekly allowance, and a
+rule does not care which of them pays - so when a slot appears, the watch spends
+whichever account still has allowance left that week. At a venue that allows an
+hour a week, three accounts are what three hours in a row costs.
 
 ### A rule
 
@@ -187,6 +190,7 @@ row costs.
 | **How often to look** | Stepped | Calm 30/15/5, Stepped 15/5/2, Fast 5/2/1 minutes |
 | **Book it** | on | Turn off to be told and take it yourself |
 | **Watch until** | empty | End of season |
+| **Tell these services** | none | Notify services told about each catch |
 
 There is no horizon field: the horizon is always today to the venue's last open
 day, because nothing beyond it can be booked at all.
@@ -208,14 +212,14 @@ more than a lone hour elsewhere.
 
 ### What it costs the venue
 
-Watching is the only expensive thing this integration does. One request covers
-the whole horizon, so the cost is counted in looks:
+Watching is the only expensive thing this integration does. One look covers the
+whole horizon and costs two requests - the venue's settings and its diary:
 
-| Interval | Requests a week |
-|---|---|
-| 15 min | ~670 |
-| 5 min | ~2000 |
-| 1 min | ~10000 |
+| Interval | Looks a week | Requests a week |
+|---|---|---|
+| 15 min | ~670 | ~1,300 |
+| 5 min | ~2,000 | ~4,000 |
+| 1 min | ~10,000 | ~20,000 |
 
 Four things keep that defensible. **The gate:** when no account has quota left
 in any week of the horizon, the watch stops entirely - no looking, no requests -
@@ -225,15 +229,14 @@ poll:** the watch opens no loop of its own; it raises the rate of the poll the
 account already makes. **Steps:** cancellations cluster near the day of play, so
 the rate follows the nearest candidate day rather than running flat.
 
-In practice a week with the gate open all the way through costs 700-1000
-requests at the default speed - about what a member with the venue's page open
-all day produces.
+In practice a week with the gate open all the way through costs 700-1,000 looks
+at the default speed, which is 1,400-2,000 requests.
 
 ### Telling it sooner
 
-If something else hears about cancellations before we do - a venue's Telegram
-channel, say - an automation can call `skedda_scheduler.slot_freed` and the
-watch looks immediately. See [Usage](usage.md#skedda_schedulerslot_freed).
+If something else in Home Assistant learns about a cancellation before the next
+poll, an automation can call `skedda_scheduler.slot_freed` and the watch looks
+immediately. See [Usage](usage.md#skedda_schedulerslot_freed).
 
 ## Strategies
 

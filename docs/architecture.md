@@ -44,32 +44,42 @@ a violation fails CI rather than surviving review.
 
 ```
 custom_components/skedda_scheduler/
-├── api/                  HTTP transport
-│   ├── client.py         session, authentication, retries, request ceiling
-│   ├── endpoints.py      every URL, header and wire field name
-│   ├── models.py         transport data objects
-│   ├── errors.py         exception taxonomy
-│   └── clock.py          server clock-offset estimation
-├── core/                 domain, pure Python
-│   ├── provider.py       BookingProvider protocol and value objects
-│   ├── job.py            BookingJob
-│   ├── recurrence.py     RecurrenceRule
-│   ├── window.py         BookingWindow
-│   ├── strategy.py       attempt planning
-│   └── result.py         BookingAttempt, BookingOutcome
-├── skedda_provider.py    adapter mapping api/ onto core/
-├── config_flow.py        account and job configuration
-├── flows/                account and job flow steps, and their validation
-├── job_factory.py        stored subentry config to BookingJob
-├── coordinator.py        periodic refresh of account state and venue rules
-├── scheduler.py          arming, timing and the attempt loop
-├── store.py              persisted attempt history
-├── sinks/                what happens to an outcome
-├── services.py           trigger_job_now, refresh_spaces
-├── diagnostics.py        redacted dump for bug reports
-├── repairs.py            the "Skedda changed its API" issue
-├── entity.py             shared entity bases and device wiring
-└── sensor.py, binary_sensor.py, switch.py, button.py
+├── api/                      HTTP transport
+│   ├── client.py             session, authentication, retries, request ceiling
+│   ├── endpoints.py          every URL, header and wire field name
+│   ├── models.py             transport data objects
+│   ├── errors.py             exception taxonomy
+│   ├── clock.py              server clock-offset estimation
+│   └── google.py             Google Calendar API transport
+├── core/                     domain, pure Python
+│   ├── provider.py           BookingProvider protocol and value objects
+│   ├── job.py                BookingJob
+│   ├── recurrence.py         RecurrenceRule
+│   ├── window.py             BookingWindow
+│   ├── strategy.py           attempt planning
+│   ├── result.py             BookingAttempt, BookingOutcome
+│   ├── watch.py              which freed slot to take, and which account pays
+│   └── subject.py            what a sink needs to know about a job or a rule
+├── skedda_provider.py        adapter mapping api/ onto core/
+├── config_flow.py            account, Google Calendar and slot watch entries
+├── flows/                    flow steps and their validation, one file per kind
+├── entry_kinds.py            telling the three kinds of entry apart
+├── job_factory.py            stored subentry config to BookingJob
+├── watch_factory.py          stored subentry config to WatchRule
+├── coordinator.py            periodic refresh of account state and venue rules
+├── scheduler.py              arming, timing and the attempt loop
+├── watcher.py                the slot watch: gate, decide, book
+├── store.py                  persisted attempt history and released slots
+├── sinks/                    what happens to an outcome
+├── google_calendar.py        OAuth session wiring for the calendar sink
+├── application_credentials.py  Google OAuth client registration
+├── services.py               trigger_job_now, refresh_spaces, slot_freed
+├── websocket.py              the snapshot the panel renders
+├── panel/                    the sidebar panel: registration and its script
+├── diagnostics.py            redacted dump for bug reports
+├── repairs.py                the "Skedda changed its API" issue
+├── entity.py                 shared entity bases and device wiring
+└── sensor.py, binary_sensor.py, switch.py, button.py, calendar.py
 ```
 
 ## Extension points
@@ -102,12 +112,16 @@ class BookingProvider(Protocol):
 
 The integration uses Home Assistant's config entries and subentries:
 
-- A **config entry** holds one account: venue, credentials and label. The venue's
-  timezone is stored alongside them, but discovered rather than typed.
-- A **config subentry** holds one booking job.
+- A **config entry** is one of three kinds:
+  - an **account**: venue, credentials and label. The venue's timezone is stored
+    alongside them, but discovered rather than typed;
+  - the **Google Calendar** link: the OAuth token and what to write;
+  - the **slot watch**: nothing but a venue.
+- A **config subentry** holds one booking job under an account, or one rule
+  under the slot watch.
 
 This gives multiple accounts and per-job editing without a bespoke settings screen,
-and lets each job own a device with its own entities.
+and lets each job and each rule own a device with its own entities.
 
 ## Timing
 
@@ -138,7 +152,7 @@ The `precise` strategy then works backwards from that instant:
 | −120 s | Authenticate if needed and open a connection, so no setup cost is paid later. |
 | −120 s … 0 | Sample the venue server's clock from the `Date` response header, correct for half the round trip, and smooth the estimate. |
 | −150 ms | Submit the first request, scheduled against the corrected clock. |
-| 0 … +1.2 s | Submit up to four further requests, 250 ms apart, stopping on the first success. |
+| −150 ms … +850 ms | Submit up to four further requests, 250 ms apart, stopping on the first success. |
 
 Home Assistant's time tracking is used for the coarse wake-up; the final hop uses the
 event loop directly, because the coarse tracker is not accurate below one second.
@@ -174,7 +188,8 @@ persisted, then handed to each configured sink:
 ```
 BookingOutcome ─┬─▶ history store          (explains a failure after the fact)
                 ├─▶ Home Assistant events  (the automation surface)
-                └─▶ notify services        (tells you what happened)
+                ├─▶ notify services        (tells you what happened)
+                └─▶ Google Calendar        (only for a success, if a calendar is linked)
 ```
 
 ## Testing
@@ -183,7 +198,7 @@ BookingOutcome ─┬─▶ history store          (explains a failure after the
 |---|---|
 | `core/` | Plain pytest with frozen time. Target: full coverage. |
 | `api/` | Fixtures recorded from real traffic, replayed through a local aiohttp server. `aioresponses` does not support the aiohttp that Home Assistant pins, and a real server exercises status codes, 204 bodies and `Date` headers as production will. |
-| Home Assistant layer | `pytest-homeassistant-custom-component`: flows, reauthentication, entity snapshots. |
+| Home Assistant layer | `pytest-homeassistant-custom-component`: flows, reauthentication, entities, the scheduler and the watch. |
 | Boundaries | A test that parses imports and fails if a layer reaches upward. |
 
 ## Contributing
