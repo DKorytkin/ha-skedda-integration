@@ -9,7 +9,9 @@ around it.
 **Skedda** in the sidebar shows three tables, each sorted and each naming the
 account responsible:
 
-- **Bookings** — the court times this account holds.
+- **Bookings** — the court times this account holds, grouped by day, with today
+  and tomorrow marked. The court is named only when bookings are on different
+  courts; ✕ releases a booking after asking.
 - **Booking jobs** — each job by name, what it will book next, and when its window opens.
 - **Accounts** — green when the account can sign in, red when it cannot.
 
