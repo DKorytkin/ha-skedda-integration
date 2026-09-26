@@ -20,6 +20,9 @@ const LOGO =
 
 const STRINGS = {
   en: {
+    locale: "en-GB",
+    today: "Today",
+    tomorrow: "Tomorrow",
     accounts: "Accounts",
     account: "Account",
     venue: "Venue",
@@ -62,6 +65,9 @@ const STRINGS = {
     minutes: "min",
   },
   uk: {
+    locale: "uk",
+    today: "Сьогодні",
+    tomorrow: "Завтра",
     accounts: "Акаунти",
     account: "Акаунт",
     venue: "Заклад",
@@ -212,6 +218,15 @@ class SkeddaPanel extends HTMLElement {
         th { font-size: 12px; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: .04em; }
         tr:hover td { background: var(--secondary-background-color, rgba(0,0,0,.02)); }
         td.actions { text-align: right; white-space: nowrap; }
+        td.time { width: 1%; white-space: nowrap; padding-left: 32px; }
+        tr.day th {
+          text-transform: none; letter-spacing: 0; font-size: 13px;
+          background: var(--secondary-background-color, rgba(0,0,0,.03));
+          padding: 8px 16px;
+        }
+        tr.day strong { color: var(--primary-text-color); font-weight: 600; }
+        button.icon { color: var(--secondary-text-color); font-size: 15px; line-height: 1; }
+        button.icon:hover { color: var(--error-color, #db4437); }
         .muted { color: var(--secondary-text-color); }
         .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
         .ok { background: var(--success-color, #43a047); }
@@ -255,8 +270,8 @@ class SkeddaPanel extends HTMLElement {
       ${card(
         t.existingBookings,
         "",
-        [t.when, t.court, t.account, ""],
-        bookings.map((booking) => bookingRow(t, booking)),
+        null,
+        bookingRows(t, bookings),
         t.noBookings,
       )}
       ${card(
@@ -308,21 +323,55 @@ function header(t, accounts) {
 }
 
 function card(title, action, headings, rows, empty) {
-  const head = `<tr>${headings.map((h) => `<th>${esc(h)}</th>`).join("")}</tr>`;
+  const head = headings ? `<tr>${headings.map((h) => `<th>${esc(h)}</th>`).join("")}</tr>` : "";
   const inner = rows.length
     ? `<table>${head}${rows.join("")}</table>`
     : `<div class="empty">${esc(empty)}</div>`;
   return `<div class="card"><h2>${esc(title)}${action}</h2>${inner}</div>`;
 }
 
-function bookingRow(t, booking) {
+function bookingRows(t, bookings) {
+  // At a venue with one court the column is the same word on every row; it
+  // earns its place only when it tells two bookings apart.
+  const showCourt = new Set(bookings.map((booking) => booking.court)).size > 1;
+  const columns = showCourt ? 4 : 3;
+  const rows = [];
+  let day = "";
+  for (const booking of bookings) {
+    const start = new Date(booking.start);
+    if (start.toDateString() !== day) {
+      day = start.toDateString();
+      rows.push(dayRow(t, start, columns));
+    }
+    rows.push(bookingRow(t, booking, showCourt));
+  }
+  return rows;
+}
+
+function dayRow(t, start, columns) {
+  const today = new Date();
+  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  const relative =
+    start.toDateString() === today.toDateString()
+      ? t.today
+      : start.toDateString() === tomorrow.toDateString()
+        ? t.tomorrow
+        : "";
+  const weekday = start.toLocaleDateString(t.locale, { weekday: "short" });
+  const date = `${pad(start.getDate())}.${pad(start.getMonth() + 1)}`;
+  const suffix = relative ? ` · <strong>${esc(relative)}</strong>` : "";
+  return `<tr class="day"><th colspan="${columns}">${esc(weekday)} ${date}${suffix}</th></tr>`;
+}
+
+function bookingRow(t, booking, showCourt) {
   return `<tr>
-    <td>${when(booking.start)}</td>
-    <td>${esc(booking.court)}</td>
+    <td class="time">${clock(t, booking.start)}</td>
+    ${showCourt ? `<td>${esc(booking.court)}</td>` : ""}
     <td>${esc(booking.account)}</td>
     <td class="actions">
-      <button class="link" data-entry="${esc(booking.entry_id)}"
-              data-booking="${esc(booking.booking_id)}">${esc(t.cancel)}</button>
+      <button class="link icon" data-entry="${esc(booking.entry_id)}"
+              data-booking="${esc(booking.booking_id)}"
+              title="${esc(t.cancel)}" aria-label="${esc(t.cancel)}">✕</button>
     </td>
   </tr>`;
 }
@@ -374,6 +423,14 @@ function when(iso) {
       minute: "2-digit",
     }),
   );
+}
+
+function clock(t, iso) {
+  return esc(new Date(iso).toLocaleTimeString(t.locale, { hour: "2-digit", minute: "2-digit" }));
+}
+
+function pad(number) {
+  return String(number).padStart(2, "0");
 }
 
 function esc(value) {

@@ -202,3 +202,40 @@ def test_each_job_row_says_which_job_it_is() -> None:
     for language in ("en", "uk"):
         strings = source.split(f"  {language}: {{")[1].split("\n  },")[0]
         assert "\n    job: " in strings, f"no heading for the job in {language}"
+
+
+def test_bookings_are_grouped_by_day() -> None:
+    """Twelve rows that each repeat a date and a court read as a wall; a day
+    heading says the date once, and today and tomorrow say so."""
+    source = PANEL_JS.read_text(encoding="utf-8")
+
+    bookings_card = source.split("t.existingBookings,")[1].split("t.bookingJobs,")[0]
+    assert "bookingRows(" in bookings_card
+    assert "t.when" not in bookings_card, "a day heading replaces the column headings"
+    rows = source.split("function bookingRows(")[1].split("\nfunction ")[0]
+    assert "dayRow(" in rows
+    day = source.split("function dayRow(")[1].split("\nfunction ")[0]
+    assert "<strong>" in day, "today and tomorrow stand out"
+    for language in ("en", "uk"):
+        strings = source.split(f"  {language}: {{")[1].split("\n  },")[0]
+        assert "\n    today: " in strings and "\n    tomorrow: " in strings, language
+
+
+def test_the_court_is_shown_only_when_it_tells_bookings_apart() -> None:
+    """At a venue with one court the column is the same word on every row."""
+    source = PANEL_JS.read_text(encoding="utf-8")
+
+    rows = source.split("function bookingRows(")[1].split("\nfunction ")[0]
+    assert "new Set(" in rows and ".court" in rows
+    row = source.split("function bookingRow(")[1].split("\nfunction ")[0]
+    assert "showCourt ?" in row
+
+
+def test_releasing_a_booking_is_an_icon_that_still_says_what_it_does() -> None:
+    """A dozen blue "Cancel" links outshone the bookings themselves."""
+    source = PANEL_JS.read_text(encoding="utf-8")
+
+    row = source.split("function bookingRow(")[1].split("\nfunction ")[0]
+    assert 'aria-label="${esc(t.cancel)}"' in row
+    assert 'title="${esc(t.cancel)}"' in row
+    assert ">${esc(t.cancel)}</button>" not in row
