@@ -5,8 +5,9 @@
 **Settings → Devices & Services → Skedda Scheduler → three-dot menu → Download
 diagnostics**
 
-The file contains the account configuration with the email address and password
-removed, every job's configuration, the full history of recent runs with each
+Download it from the **account's** entry; the Google Calendar and Slot watch
+entries do not offer anything useful yet. The file contains the account
+configuration with the email address and password removed, every job's configuration, the full history of recent runs with each
 individual attempt — its timing, latency and the venue's own words — the measured
 offset between your clock and the venue's, the venue's rules that were in force, and
 the list of courts. It is the right attachment for a bug report.
@@ -74,8 +75,9 @@ Worth checking:
   before** is smaller than the venue actually allows, the request goes out days after
   the slot became available to everyone else. Compare it against the value the form
   suggests, which comes from the venue itself.
-- **Is the strategy set to `Precise`?** `Immediate` submits without preparing the
-  session first, which costs time.
+- **Is the strategy set to `Precise`?** `Immediate` prepares the session only 30
+  seconds ahead and fires at the opening instant rather than slightly before
+  it, so its first request arrives later.
 - **Was the court simply gone?** At a busy venue the first request after the window
   opens can still lose. The diagnostics show the exact instant each attempt was sent
   and how far your clock sat from the venue's.
@@ -121,7 +123,7 @@ and that `https://<venue>.skedda.com` loads in a browser.
 ### `Next run` is unknown
 
 Either the job is disabled, or its season has ended. Check the `Job enabled` switch
-and the **Season ends** date.
+and the job's **Repeat until** date.
 
 ### Nothing happens at all
 
