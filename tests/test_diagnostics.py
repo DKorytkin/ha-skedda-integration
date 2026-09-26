@@ -16,7 +16,8 @@ from pytest_homeassistant_custom_component.components.diagnostics import (
 from custom_components.skedda_scheduler.api.errors import ApiContractError
 from custom_components.skedda_scheduler.const import DOMAIN
 from custom_components.skedda_scheduler.repairs import CONTRACT_ISSUE
-from tests.helpers import setup_with_job
+from tests.helpers import WATCH_RULE_DATA, setup_with_job, watch_entry_with_rule
+from tests.test_google_calendar import calendar_entry
 
 
 async def diagnostics(hass: HomeAssistant, client: Any, entry: MockConfigEntry) -> dict[str, Any]:
@@ -119,3 +120,40 @@ async def test_diagnostics_ignore_subentries_that_are_not_jobs(
     await hass.async_block_till_done()
 
     assert (await diagnostics(hass, hass_client, mock_entry))["jobs"] == []
+
+
+async def test_the_calendar_entry_has_diagnostics_without_its_secrets(
+    hass: HomeAssistant,
+    hass_client: Any,
+    mock_entry: MockConfigEntry,
+    mock_provider: AsyncMock,
+) -> None:
+    """Home Assistant offers the download on every entry, so it must not fail
+    on the one that is not an account, nor hand out a Google token."""
+    await setup_with_job(hass, mock_entry)
+    calendar = calendar_entry()
+    calendar.add_to_hass(hass)
+
+    dumped = json.dumps(await diagnostics(hass, hass_client, calendar))
+
+    # Quoted, so the key "token" does not count as the token "tok".
+    for secret in ('"tok"', '"refresh"', "oleh@example.com", "denys@example.com", "Some Street"):
+        assert secret not in dumped, secret
+    assert "Tennis" in dumped
+
+
+async def test_the_watch_entry_has_diagnostics(
+    hass: HomeAssistant,
+    hass_client: Any,
+    mock_entry: MockConfigEntry,
+    mock_provider: AsyncMock,
+) -> None:
+    """What a rule wants and whether the gate is open answer "why no catch?"."""
+    await setup_with_job(hass, mock_entry)
+    watch = await watch_entry_with_rule(hass)
+
+    result = await diagnostics(hass, hass_client, watch)
+
+    assert result["entry"]["venue"] == "myclub"
+    assert [rule["config"]["name"] for rule in result["rules"]] == [WATCH_RULE_DATA["name"]]
+    assert "gate_open" in result

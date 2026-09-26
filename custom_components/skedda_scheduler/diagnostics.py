@@ -9,16 +9,36 @@ from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 
 from . import SkeddaConfigEntry
-from .const import SUBENTRY_TYPE_JOB
+from .const import (
+    CONF_ATTENDEES,
+    CONF_CALENDAR_ID,
+    CONF_LOCATION,
+    ENTRY_KIND_CALENDAR,
+    ENTRY_KIND_WATCH,
+    SUBENTRY_TYPE_JOB,
+)
+from .entry_kinds import entry_kind
 
 #: The venue subdomain deliberately stays: it identifies which venue's rules
 #: are in play, and a bug report without it is unanswerable.
 TO_REDACT = {CONF_EMAIL, CONF_PASSWORD}
 
+#: The token signs in to Google; the calendar id is usually an email address,
+#: and the address and guest list are nobody else's business.
+CALENDAR_REDACT = {"token", CONF_CALENDAR_ID, CONF_LOCATION, CONF_ATTENDEES}
+
 
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: SkeddaConfigEntry
 ) -> dict[str, Any]:
+    # Home Assistant offers the download on every entry. Only an account has a
+    # coordinator; the other two would fail on it with a server error.
+    kind = entry_kind(entry)
+    if kind == ENTRY_KIND_CALENDAR:
+        return {"entry": async_redact_data(dict(entry.data), CALENDAR_REDACT)}
+    if kind == ENTRY_KIND_WATCH:
+        return _watch_diagnostics(entry)
+
     runtime = entry.runtime_data
     clock = getattr(getattr(runtime.provider, "client", None), "clock", None)
     data = runtime.coordinator.data
@@ -56,4 +76,21 @@ async def async_get_config_entry_diagnostics(
         },
         "spaces": [{"id": space.id, "name": space.name} for space in data.spaces],
         "jobs": jobs,
+    }
+
+
+def _watch_diagnostics(entry: SkeddaConfigEntry) -> dict[str, Any]:
+    """What each rule wants, and whether the watch is looking at all."""
+    runner = getattr(getattr(entry, "runtime_data", None), "watcher", None)
+    interval = runner.interval if runner else None
+    catch = runner.last_catch if runner else None
+    return {
+        "entry": dict(entry.data),
+        "rules": [
+            {"rule_id": subentry_id, "config": dict(subentry.data)}
+            for subentry_id, subentry in entry.subentries.items()
+        ],
+        "gate_open": runner.gate_open if runner else None,
+        "poll_interval_minutes": interval.total_seconds() / 60 if interval else None,
+        "last_catch": catch.start.isoformat() if catch else None,
     }
