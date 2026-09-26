@@ -1,16 +1,25 @@
 name: Release
 
+# Pushing a tag is the whole release: nothing reaches HACS until every check
+# below has passed, and then the GitHub release is what HACS offers.
 on:
-  release:
-    types: [published]
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
 
 jobs:
-  verify-version:
+  version:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Manifest version must match the tag
+        # HACS compares the tag with the installed manifest.json; a mismatch
+        # offers users the same update over and over.
         run: |
           manifest=$(jq -r .version custom_components/skedda_scheduler/manifest.json)
           tag="${GITHUB_REF_NAME#v}"
@@ -18,4 +27,34 @@ jobs:
             echo "manifest.json says $manifest but the tag says $tag" >&2
             exit 1
           fi
-          echo "manifest.json and the tag both say $tag"
+
+      - name: Tag must be on main
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "$GITHUB_REF_NAME is not on main" >&2
+            exit 1
+          fi
+
+  tests:
+    uses: ./.github/workflows/tests.yml
+
+  validate:
+    uses: ./.github/workflows/validate.yml
+
+  publish:
+    needs: [version, tests, validate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # 0.3.0b1, 0.3.0rc1 and the like are offered only to users who enable
+        # pre-releases for this repository in HACS.
+        run: |
+          flags=(--repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes)
+          if [[ "$GITHUB_REF_NAME" =~ (a|b|rc)[0-9]+$ ]]; then
+            flags+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" "${flags[@]}"

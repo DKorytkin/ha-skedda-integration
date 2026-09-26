@@ -108,7 +108,8 @@ once the change is released, accept it and you are back on a tracked version.
 To try a build through HACS itself, the same path users take:
 
 1. Set `version` in `manifest.json` to a pre-release, e.g. `0.2.1b1`.
-2. Push it and publish a GitHub release marked **pre-release**, tagged `v0.2.1b1`.
+2. Merge it to `main`, then push the tag `v0.2.1b1`. The release workflow publishes
+   it as a pre-release (see [Releasing](#releasing)).
 3. Let HACS offer pre-releases for this repository: under **Settings → Devices &
    Services → HACS**, open the **Skedda Scheduler** device and enable its
    **Pre-release** switch (it is disabled by default).
@@ -136,22 +137,31 @@ Nobody else is offered a pre-release unless they enable that switch too.
 
 ## Releasing
 
-HACS offers users whatever GitHub release is marked latest. A release is:
+HACS offers users the latest GitHub release; a tag on its own is not enough.
+Pushing a tag is the whole release, and
+[`.github/workflows/release.yml`](.github/workflows/release.yml) does the rest:
 
 1. Bump `version` in `custom_components/skedda_scheduler/manifest.json`, following
-   [semantic versioning](https://semver.org/): a fix is a patch, a new capability a
-   minor.
-2. Commit it on `main` as `chore: release X.Y.Z` and push. Wait for CI to pass.
-3. Publish the release, with the tag prefixed by `v`:
+   [semantic versioning](https://semver.org/): a fix is a patch, a new capability
+   a minor. Merge that to `main` like any other change.
+2. Tag the merge commit and push the tag:
 
    ```bash
-   gh release create vX.Y.Z --target main --title vX.Y.Z --generate-notes
+   git checkout main && git pull
+   git tag v0.2.1
+   git push origin v0.2.1
    ```
 
-`.github/workflows/release.yml` fails the release if the tag and `manifest.json`
-disagree. When it does, delete the release and the tag, fix the version, and
-publish again: HACS compares the tag with the installed `manifest.json`, so a
-mismatch offers users the same update over and over.
+The workflow then checks that the tag matches `manifest.json` and is on `main`,
+runs the tests, hassfest and the HACS check, and only then publishes the GitHub
+release with notes generated from the merged pull requests. If any check fails,
+nothing is published: delete the tag (`git push --delete origin v0.2.1`), fix,
+and tag again.
+
+A tag ending in `a1`, `b1` or `rc1` (e.g. `v0.3.0b1`, with the same version in
+`manifest.json`) is published as a pre-release. HACS offers it only to users who
+enable pre-releases for this repository, which is how to try a build through
+HACS before everyone gets it.
 
 ## Listing in the HACS default catalogue
 
