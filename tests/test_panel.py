@@ -239,3 +239,6 @@ def test_releasing_a_booking_is_an_icon_that_still_says_what_it_does() -> None:
     assert 'aria-label="${esc(t.cancel)}"' in row
     assert 'title="${esc(t.cancel)}"' in row
     assert ">${esc(t.cancel)}</button>" not in row
+    # button.link comes later in the stylesheet; one class alone lost to it and
+    # the quiet icon came out in the link colour.
+    assert "button.link.icon {" in source

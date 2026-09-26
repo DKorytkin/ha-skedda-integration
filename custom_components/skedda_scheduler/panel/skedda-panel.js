@@ -225,8 +225,9 @@ class SkeddaPanel extends HTMLElement {
           padding: 8px 16px;
         }
         tr.day strong { color: var(--primary-text-color); font-weight: 600; }
-        button.icon { color: var(--secondary-text-color); font-size: 15px; line-height: 1; }
-        button.icon:hover { color: var(--error-color, #db4437); }
+        /* Two classes, so it outranks button.link further down. */
+        button.link.icon { color: var(--secondary-text-color); font-size: 15px; line-height: 1; }
+        button.link.icon:hover { color: var(--error-color, #db4437); }
         .muted { color: var(--secondary-text-color); }
         .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
         .ok { background: var(--success-color, #43a047); }
