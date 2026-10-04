@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -508,3 +508,17 @@ def test_giving_up_one_slot_does_not_block_the_next_day() -> None:
 
     assert caught is not None
     assert caught.start.date() != date(2026, 10, 1)
+
+
+def test_the_gate_counts_weeks_by_the_venues_calendar_not_utc() -> None:
+    """Seen 2026-10-05 at 00:02 Kyiv, when it was still Sunday in UTC.
+
+    Every week the venue will let us book is spent. Read in UTC, the first of
+    them looked like last week - free, and holding the gate open.
+    """
+    monday_after_midnight = datetime(2026, 10, 4, 21, 2, tzinfo=UTC)
+    horizon = monday_after_midnight + timedelta(days=14)
+    ours = {"acc-a": [booking(5, 20), booking(12, 20), booking(19, 20)]}
+
+    assert has_capacity(ours, 60, monday_after_midnight, horizon)
+    assert not has_capacity(ours, 60, monday_after_midnight, horizon, venue_tz=KYIV)
