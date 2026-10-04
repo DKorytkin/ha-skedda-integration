@@ -74,7 +74,9 @@ def websocket_overview(
             # is still worth listing, so the panel can show why.
             accounts.append(_account(entry, authenticated=False))
             continue
-        accounts.append(_account(entry, authenticated=entry.runtime_data.coordinator.authenticated))
+        coordinator = entry.runtime_data.coordinator
+        coordinator.async_note_viewed()
+        accounts.append(_account(entry, authenticated=coordinator.authenticated))
         jobs.extend(_jobs(hass, entry))
         bookings.extend(_bookings(entry))
 
