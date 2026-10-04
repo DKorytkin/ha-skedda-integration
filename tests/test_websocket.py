@@ -473,3 +473,31 @@ async def test_cancelling_from_the_panel_marks_the_slot_as_given_up(
     assert (await client.receive_json())["success"]
 
     assert ("2000001", start.isoformat()) in mock_entry.runtime_data.store.released_slots()
+
+
+async def test_an_open_panel_asks_for_a_poll_once_the_snapshot_is_old(
+    hass: HomeAssistant,
+    hass_ws_client: Any,
+    mock_entry: MockConfigEntry,
+    mock_provider: AsyncMock,
+) -> None:
+    """Reported 2026-10-04: a court booked by hand never reached the panel.
+
+    With the next job days away the account polls twice a day, so a booking
+    made on the venue's own site stayed invisible for up to twelve hours. The
+    panel being open is the reason to look sooner.
+    """
+    await setup_with_job(hass, mock_entry)
+    client = await hass_ws_client(hass)
+    mock_provider.list_bookings.reset_mock()
+
+    await overview(client)
+    await hass.async_block_till_done()
+    assert mock_provider.list_bookings.await_count == 0, "a fresh snapshot is left alone"
+
+    later = dt_util.utcnow() + timedelta(minutes=10)
+    with patch("custom_components.skedda_scheduler.coordinator.dt_util.utcnow", return_value=later):
+        await overview(client)
+        await hass.async_block_till_done()
+
+    mock_provider.list_bookings.assert_awaited()

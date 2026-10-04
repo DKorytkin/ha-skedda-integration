@@ -16,7 +16,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import (
+    TimestampDataUpdateCoordinator,
+    UpdateFailed,
+)
 from homeassistant.util import dt as dt_util
 
 from .api.errors import SkeddaAuthError, SkeddaError
@@ -45,6 +48,10 @@ IMMINENT = timedelta(hours=1)
 #: current. A day of hourly polling ahead of every booking was the largest
 #: share of everything this integration asked the venue, for no benefit.
 DISTANT = timedelta(hours=6)
+#: How old a snapshot may be while somebody has the panel open. The slow
+#: cadences above are right for nobody looking; a booking made by hand on the
+#: venue's site should not then take half a day to appear.
+VIEWED_FRESHNESS = timedelta(minutes=5)
 #: Comfortably past any venue's booking horizon (14 days at the venue this was
 #: built against), so a job's next slot is always inside the polled range.
 LOOKAHEAD = timedelta(days=30)
@@ -59,7 +66,7 @@ class SkeddaData:
     rules: VenueRules
 
 
-class SkeddaCoordinator(DataUpdateCoordinator[SkeddaData]):
+class SkeddaCoordinator(TimestampDataUpdateCoordinator[SkeddaData]):
     """Keeps one account's view of Skedda fresh."""
 
     #: The base class allows None; this one is always built with an entry, and
@@ -123,6 +130,18 @@ class SkeddaCoordinator(DataUpdateCoordinator[SkeddaData]):
         if remaining <= DISTANT:
             return DISTANT_INTERVAL
         return IDLE_INTERVAL
+
+    @callback
+    def async_note_viewed(self) -> None:
+        """Somebody is looking: poll now if the snapshot has gone stale.
+
+        Requested rather than awaited, so the panel's reply is not held up by
+        the venue; its next look, half a minute later, sees the result.
+        """
+        last = self.last_update_success_time
+        if last is not None and dt_util.utcnow() - last < VIEWED_FRESHNESS:
+            return
+        self.hass.async_create_task(self.async_request_refresh())
 
     async def _async_update_data(self) -> SkeddaData:
         try:
