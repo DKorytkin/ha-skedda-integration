@@ -180,12 +180,16 @@ async def test_a_rule_the_form_let_through_broken_is_skipped(
 async def test_the_catch_is_paid_for_by_an_account_with_quota_left(
     hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
 ) -> None:
-    """This week is spent, so the catch has to land in a later one."""
+    """This week is spent, so the catch has to land in a later one.
+
+    Setting the watch up already scans, and may already have caught it: early
+    on a Monday the horizon holds only one later week. Either scan will do.
+    """
     mock_provider.list_bookings.return_value = [mine(0, 20)]
     await setup_account(hass, mock_entry)
     watch = await watch_entry_with_rule(hass)
 
-    caught = await watch.runtime_data.watcher.async_scan()
+    caught = await watch.runtime_data.watcher.async_scan() or watch.runtime_data.watcher.last_catch
 
     assert caught is not None
     assert caught.account_id == mock_entry.entry_id
@@ -490,16 +494,55 @@ async def test_a_venue_failure_during_a_background_scan_is_only_logged(
     await watch.runtime_data.watcher._async_scan_quietly()
 
 
-async def test_a_week_a_job_is_aiming_at_is_left_alone(
-    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
-) -> None:
-    """Spending the job's hour would make it fail on quota at its own window."""
-    await setup_with_job(hass, mock_entry)
-    watch = await watch_entry_with_rule(hass)
-    mock_provider.book.reset_mock()
+async def caught_weeks(
+    watch: MockConfigEntry, account: MockConfigEntry, mock_provider: AsyncMock
+) -> set[int]:
+    """Every ISO week the watch books in, scanning until it has had its fill.
 
-    assert await watch.runtime_data.watcher.async_scan() is None
-    assert mock_provider.book.await_count == 0
+    The account is re-read between scans by hand: with the clock frozen, the
+    refresh a catch requests is debounced for ever.
+    """
+    for _ in range(10):
+        await account.runtime_data.coordinator.async_refresh()
+        if await watch.runtime_data.watcher.async_scan() is None:
+            break
+    return {call.args[0].start.isocalendar()[1] for call in mock_provider.book.await_args_list}
+
+
+async def test_a_week_a_job_is_aiming_at_is_left_alone(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock, freezer: Any
+) -> None:
+    """Spending the job's hour would make it fail on quota at its own window.
+
+    Sunday 11.10: the job is armed for Tuesday 13.10, in week 42.
+    """
+    freezer.move_to("2026-10-11T09:00:00Z")
+    job_id = await setup_with_job(hass, mock_entry)
+    watch = await watch_entry_with_rule(hass)
+    armed = mock_entry.runtime_data.scheduler.runner_for(job_id).armed_slot
+
+    assert armed is not None and armed.isocalendar()[1] == 42
+    assert 42 not in await caught_weeks(watch, mock_entry, mock_provider)
+
+
+async def test_a_week_whose_window_the_job_let_pass_is_the_watchs_business(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock, freezer: Any
+) -> None:
+    """Thursday 15.10: the job is armed for Tuesday 20.10 (week 43), and the
+    window for 27.10 (week 44) has already opened. The job catches up on one
+    slot only and will never fire at 27.10, so leaving week 44 reserved would
+    leave it to nobody.
+    """
+    freezer.move_to("2026-10-15T09:00:00Z")
+    job_id = await setup_with_job(hass, mock_entry)
+    watch = await watch_entry_with_rule(hass)
+    armed = mock_entry.runtime_data.scheduler.runner_for(job_id).armed_slot
+
+    weeks = await caught_weeks(watch, mock_entry, mock_provider)
+
+    assert armed is not None and armed.isocalendar()[1] == 43
+    assert 43 not in weeks
+    assert 44 in weeks
 
 
 async def test_a_week_the_job_already_lost_is_the_watchs_business(

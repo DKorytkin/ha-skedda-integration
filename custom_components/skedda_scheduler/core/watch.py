@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, tzinfo
 from enum import StrEnum
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -208,19 +208,30 @@ def has_capacity(
     now: datetime,
     horizon_end: datetime,
     reserved: Mapping[str, Collection[tuple[int, int]]] | None = None,
+    venue_tz: tzinfo | None = None,
 ) -> bool:
     """Whether any account may still book anything inside the horizon.
 
     False means the watcher does nothing at all - no polling, no candidates -
     until the horizon rolls forward or something is cancelled. That is the
     economy that makes watching affordable.
+
+    The weeks are the venue's, as in week_of. Counted from a UTC `now`, the
+    first hours of a Monday in Kyiv still fell in the week before - a week
+    already over, whose spare hour held the gate open - and the last week of
+    the horizon was never looked at. Seen 2026-10-05 at 00:02.
     """
     return any(
-        accounts_with_quota(ours, quota_minutes, week) for week in _weeks_between(now, horizon_end)
+        accounts_with_quota(ours, quota_minutes, week)
+        for week in _weeks_between(now, horizon_end, venue_tz)
     )
 
 
-def _weeks_between(start: datetime, end: datetime) -> set[tuple[int, int]]:
+def _weeks_between(
+    start: datetime, end: datetime, venue_tz: tzinfo | None = None
+) -> set[tuple[int, int]]:
+    if venue_tz is not None:
+        start, end = start.astimezone(venue_tz), end.astimezone(venue_tz)
     weeks: set[tuple[int, int]] = set()
     day = start
     while day <= end:

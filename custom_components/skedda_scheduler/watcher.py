@@ -215,7 +215,9 @@ class WatchRunner:
         ours = {entry.entry_id: self._mine(entry) for entry in accounts}
         await self._async_note_releases(accounts, ours, now)
         reserved = {entry.entry_id: self._aimed_weeks(entry, now, horizon) for entry in accounts}
-        self.gate_open = has_capacity(ours, data.rules.weekly_quota_minutes, now, horizon, reserved)
+        self.gate_open = has_capacity(
+            ours, data.rules.weekly_quota_minutes, now, horizon, reserved, rules[0].tz
+        )
         self._apply_interval(rules, data, now, horizon)
         if not self.gate_open:
             return None
