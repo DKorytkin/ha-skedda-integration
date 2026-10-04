@@ -148,6 +148,40 @@ async def test_too_early_keeps_firing_until_the_window_opens(
     ]
 
 
+async def test_a_refusal_as_the_window_opens_is_an_early_shot_not_a_verdict(
+    runner: JobRunner, mock_provider: AsyncMock, no_sleep: None
+) -> None:
+    """Skedda refuses a not-yet-open slot exactly as one weeks out.
+
+    The burst sends its first shots early on purpose, so in a race that
+    refusal must mean "again", or the burst dies on its first shot.
+    """
+    mock_provider.book.side_effect = [BookingWindowClosedError("x"), BOOKING]
+    slot = JOB.next_slot(NOW)
+
+    with patch("custom_components.skedda_scheduler.scheduler.dt_util.utcnow", return_value=NOW):
+        outcome = await runner._async_execute(NOW, slot, racing=True)
+
+    assert outcome.succeeded
+    assert [attempt.status for attempt in outcome.attempts] == [
+        AttemptStatus.TOO_EARLY,
+        AttemptStatus.SUCCESS,
+    ]
+
+
+async def test_a_window_refusal_well_after_the_open_instant_still_ends_the_run(
+    runner: JobRunner, mock_provider: AsyncMock, no_sleep: None
+) -> None:
+    mock_provider.book.side_effect = BookingWindowClosedError("x")
+    slot = JOB.next_slot(NOW)
+
+    with patch("custom_components.skedda_scheduler.scheduler.dt_util.utcnow", return_value=NOW):
+        outcome = await runner._async_execute(NOW - timedelta(minutes=1), slot, racing=True)
+
+    assert outcome.failure_reason == "window_closed"
+    assert len(outcome.attempts) == 1
+
+
 @pytest.mark.parametrize(
     ("error", "reason"),
     [
@@ -271,13 +305,33 @@ async def test_a_slot_already_on_the_books_is_not_booked_twice(
     restart would otherwise throw another request at a booking we hold.
     """
     slot_start, _ = JOB.next_slot(NOW)
-    runner.entry.runtime_data.coordinator.data.bookings = [replace(BOOKING, start=slot_start)]
+    runner.entry.runtime_data.coordinator.data.bookings = [
+        replace(BOOKING, start=slot_start, is_mine=True)
+    ]
 
     with patch("custom_components.skedda_scheduler.scheduler.dt_util.utcnow", return_value=NOW):
         outcome = await runner.async_run_now()
 
     assert not outcome.succeeded
     assert outcome.failure_reason == "already_booked"
+    assert mock_provider.book.await_count == 0
+
+
+async def test_a_slot_somebody_else_holds_is_reported_as_taken_not_ours(
+    runner: JobRunner, mock_provider: AsyncMock, no_sleep: None
+) -> None:
+    """The poll lists the whole venue: held is not the same as held by us.
+
+    Observed 2026-10-04: a job that had lost its slot to a rival logged that
+    it "already holds" it, and its history said already_booked.
+    """
+    slot_start, _ = JOB.next_slot(NOW)
+    runner.entry.runtime_data.coordinator.data.bookings = [replace(BOOKING, start=slot_start)]
+
+    with patch("custom_components.skedda_scheduler.scheduler.dt_util.utcnow", return_value=NOW):
+        outcome = await runner.async_run_now()
+
+    assert outcome.failure_reason == "slot_taken"
     assert mock_provider.book.await_count == 0
 
 
@@ -721,3 +775,34 @@ async def test_only_a_booking_that_landed_costs_an_extra_poll(
     assert after_failure == 0
     assert mock_provider.list_bookings.await_count > 0
     assert coordinator.last_update_success
+
+
+async def test_an_armed_run_books_the_slot_it_was_armed_for(
+    runner: JobRunner, mock_provider: AsyncMock, no_sleep: None
+) -> None:
+    """Observed live 2026-09-27 and 2026-10-01: a week lost without a shot.
+
+    With a two-week window a weekly job always has the nearer week open, and
+    usually already ours. The runner armed for the week whose window was
+    opening, then fired at the nearest one instead, found it held and gave up -
+    so the week it had armed for was never tried.
+    """
+    held = datetime(2026, 9, 8, 18, 0, tzinfo=JOB.tz)
+    target = datetime(2026, 9, 22, 18, 0, tzinfo=JOB.tz)
+    just_before = JOB.window.opens_at(target) - timedelta(minutes=2)
+    runner.entry.runtime_data.coordinator.data = replace(
+        runner.entry.runtime_data.coordinator.data, bookings=[BOOKING]
+    )
+    runner.attempted_slot = held
+    mock_provider.book.return_value = replace(BOOKING, id="bk-2")
+
+    with patch(
+        "custom_components.skedda_scheduler.scheduler.dt_util.utcnow", return_value=just_before
+    ):
+        runner.async_schedule()
+        assert runner.armed_slot == target
+        await runner._async_armed(just_before)
+        runner.async_cancel()
+
+    request = mock_provider.book.await_args.args[0]
+    assert request.start == target

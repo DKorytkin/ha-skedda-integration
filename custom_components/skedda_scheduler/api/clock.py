@@ -9,9 +9,14 @@ smoothed with an exponentially weighted moving average.
 
 Two properties of the source data drive the design:
 
-* Skedda's ``Date`` header has one-second resolution, so a single sample can be
-  off by up to half a second. Averaging several samples is what buys sub-second
-  accuracy - hence the EWMA rather than last-value-wins.
+* Skedda's ``Date`` header has one-second resolution and is *truncated*, not
+  rounded: "18:00:00" means some instant in [18:00:00, 18:00:01). Read as the
+  start of that second, every sample is half a second early on average, and an
+  average of such samples is too. The middle of the second is the unbiased
+  reading. Observed live 2026-09-29: the burst left 0.29-0.34 s after the open
+  instant instead of 0.15 s before it, and lost a slot by that margin.
+* Averaging several samples is what buys sub-second accuracy - hence the EWMA
+  rather than last-value-wins.
 * The half-round-trip correction assumes the request and response legs take
   about the same time. A stalled response breaks that assumption badly, so
   samples with an implausibly long round trip are discarded instead of being
@@ -23,6 +28,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
+
+#: Where in a truncated whole-second ``Date`` stamp the server's clock most
+#: likely stood.
+_TRUNCATION_MIDPOINT = timedelta(milliseconds=500)
 
 # Observed round trips to a venue host were 165-210 ms. A second is already far
 # outside that; anything beyond is a stall, not latency.
@@ -62,6 +71,8 @@ class ClockSync:
         round_trip = (response_received - request_sent).total_seconds()
         if round_trip > self.max_round_trip_seconds:
             return self.offset_seconds
+        if server_time.microsecond == 0:
+            server_time += _TRUNCATION_MIDPOINT
         local_midpoint = request_sent + timedelta(seconds=round_trip / 2)
         sample = (server_time - local_midpoint).total_seconds()
         if self.samples == 0:

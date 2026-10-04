@@ -509,8 +509,9 @@ async def test_a_week_the_job_already_lost_is_the_watchs_business(
     job_id = await setup_with_job(hass, mock_entry)
     watch = await watch_entry_with_rule(hass)
     runner = mock_entry.runtime_data.scheduler.runner_for(job_id)
-    # The job fired at its slot and did not get it.
+    # The job fired at its slot, did not get it, and moved on to the next.
     runner.attempted_slot = runner.job.next_slot(dt_util.utcnow())[0]
+    runner.async_schedule()
     mock_provider.book.reset_mock()
 
     caught = await watch.runtime_data.watcher.async_scan()
@@ -636,3 +637,30 @@ async def test_the_first_scan_after_a_restart_releases_nothing(
     await watch.runtime_data.watcher.async_scan()
 
     assert mock_entry.runtime_data.store.released_slots() == set()
+
+
+async def test_a_week_whose_window_opened_without_the_job_is_not_reserved(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Observed 2026-10-01: a job skipped its week, and the watch kept out too.
+
+    The job never fired at that slot, so "the last slot it attempted" did not
+    release it - yet a slot whose window opened and that the job is not armed
+    for is one it will never try again.
+    """
+    from custom_components.skedda_scheduler.core.watch import week_of
+
+    job_id = await setup_with_job(hass, mock_entry)
+    watch = await watch_entry_with_rule(hass)
+    runner = mock_entry.runtime_data.scheduler.runner_for(job_id)
+    now = dt_util.utcnow()
+    nearest = runner.job.next_slot(now)[0]
+    later = runner.job.next_slot(nearest)[0]
+    assert runner.job.window.opens_at(nearest) <= now
+    runner.attempted_slot = None
+    runner.armed_slot = later
+
+    weeks = watch.runtime_data.watcher._aimed_weeks(mock_entry, now, now + timedelta(days=14))
+
+    assert week_of(nearest) not in weeks
+    assert week_of(later) in weeks

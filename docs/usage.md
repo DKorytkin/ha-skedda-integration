@@ -49,7 +49,7 @@ authentication sensor - carries the account in its own entity id.
 | Entity | Type | Meaning |
 |---|---|---|
 | `Next run` | sensor (timestamp) | When the integration will next wake up for this job. Unknown once the season has ended. |
-| `Last outcome` | sensor | `success`, or the reason the last run failed: `slot_taken`, `quota_exceeded`, `window_closed`, `too_early`, `auth_failed`, `rate_limited`, `contract_error`, `connection_error`, or `already_booked` when the slot was already held and nothing was sent. |
+| `Last outcome` | sensor | `success`, or the reason the last run failed: `slot_taken`, `quota_exceeded`, `window_closed`, `too_early`, `auth_failed`, `rate_limited`, `contract_error`, `connection_error`, or `already_booked` when this account already held the slot and nothing was sent. |
 | `Status` | sensor | `armed` while a booking attempt is scheduled, `disabled` when switched off, `out_of_season` once the season has ended. |
 | `Job enabled` | switch | Pauses or resumes the job without deleting it. |
 | `Run now` | button | Runs the job immediately instead of waiting for its window. |
