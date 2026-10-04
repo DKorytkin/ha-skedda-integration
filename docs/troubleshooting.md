@@ -84,7 +84,9 @@ Worth checking:
 
 ### `Last outcome` says `too_early`
 
-Every attempt in the run arrived before the venue considered the window open. A shot
+Every attempt in the run arrived before the venue considered the window open. Skedda
+answers an early shot the way it answers a slot beyond its horizon; within a few
+seconds of the opening instant the run reads that as `too_early` and fires again. A shot
 or two of `too_early` is normal — the burst deliberately straddles the opening
 instant — but a whole run of them means the window was calculated too early. Check
 **Booking opens this many days before** against the value the job form suggests.
@@ -103,9 +105,10 @@ own horizon.
 
 ### `Last outcome` says `already_booked`
 
-The run fired nothing because the last poll already showed that slot reserved on one
-of the job's courts — normally because the job had already succeeded. This is the
-guard that stops a Home Assistant restart from re-submitting a booking you hold.
+The run fired nothing because the last poll already showed that slot reserved by this
+account on one of the job's courts — normally because the job had already succeeded.
+This is the guard that stops a Home Assistant restart from re-submitting a booking
+you hold. If somebody else holds it, the run records `slot_taken` instead.
 
 ### `Last outcome` says `rate_limited`
 

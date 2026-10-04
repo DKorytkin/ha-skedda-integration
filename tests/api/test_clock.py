@@ -78,3 +78,19 @@ def test_alpha_must_be_a_usable_weight() -> None:
         ClockSync(alpha=0.0)
     with pytest.raises(ValueError, match="alpha"):
         ClockSync(alpha=1.5)
+
+
+def test_a_whole_second_date_header_is_read_as_the_middle_of_that_second() -> None:
+    """Observed live 2026-09-29: the burst fired half a second late.
+
+    The header is truncated, so a stamp of 18:00:00 was sent at some point in
+    [18:00:00, 18:00:01). Taking the start of that second biased every sample,
+    and the average, half a second towards a server that seems to run slow.
+    """
+    sent = datetime(2026, 9, 29, 16, 59, 59, 700_000, tzinfo=UTC)
+    received = sent + timedelta(milliseconds=200)
+    # Clocks agree: the server read 16:59:59.8 at our midpoint and stamped
+    # 16:59:59. Without the correction that reads as running 0.8 s slow.
+    stamp = datetime(2026, 9, 29, 16, 59, 59, tzinfo=UTC)
+
+    assert ClockSync().observe(stamp, sent, received) == pytest.approx(-0.3)

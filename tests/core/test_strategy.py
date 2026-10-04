@@ -30,7 +30,7 @@ def test_precise_arms_two_minutes_before_the_window_opens() -> None:
 def test_precise_first_shot_lands_just_before_the_window_opens() -> None:
     """Deliberately early: the request must arrive as the window flips open."""
     plan = PreciseStrategy().plan(OPENS_AT)
-    assert plan.first_fire_at == OPENS_AT - timedelta(milliseconds=150)
+    assert plan.first_fire_at == OPENS_AT - timedelta(milliseconds=400)
 
 
 def test_precise_fires_a_burst_at_the_configured_spacing() -> None:

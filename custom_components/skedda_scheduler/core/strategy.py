@@ -92,12 +92,17 @@ class PreciseStrategy:
     The first shot goes out slightly *early* on purpose: what matters is when
     the request arrives at Skedda, not when it leaves us. `lead_ms` covers the
     network leg, and the remaining shots cover the residual clock error.
+
+    An early arrival costs one refused request, which the scheduler retries; a
+    late one loses the slot to whoever clicked on the second. Observed live
+    2026-09-29: a rival won 20:00 while our first shot was ~0.3 s late, so the
+    burst now starts earlier and spends the whole per-run allowance.
     """
 
     prewarm_seconds: int = 120
-    lead_ms: int = 150
-    burst_count: int = 5
-    burst_spacing_ms: int = 250
+    lead_ms: int = 400
+    burst_count: int = MAX_ATTEMPTS
+    burst_spacing_ms: int = 200
 
     def __post_init__(self) -> None:
         if not 1 <= self.burst_count <= MAX_ATTEMPTS:

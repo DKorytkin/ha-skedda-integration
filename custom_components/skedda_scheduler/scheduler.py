@@ -65,6 +65,13 @@ _ERROR_STATUS: tuple[tuple[type[SkeddaError], AttemptStatus], ...] = (
 #: genuinely transient; this is the back-off that makes the retry defensible.
 RATE_LIMIT_BACKOFF_SECONDS = 2.0
 
+#: How long after the open instant a "beyond the horizon" refusal still means
+#: our shot simply arrived early. Skedda has no separate "too early" answer: a
+#: request for a slot whose window has not opened yet is refused exactly like
+#: one that lies weeks out. Treating it as final killed the burst on its first
+#: early shot - the shot the burst sends early on purpose.
+TOO_EARLY_GRACE = timedelta(seconds=3)
+
 #: How many occurrences to walk past when looking for a window that has not
 #: opened yet. A season is finite and the horizon is short; this is a guard
 #: against a rule that somehow yields dates for ever.
@@ -78,6 +85,8 @@ CATCH_UP_DELAY = timedelta(seconds=1)
 #: Recorded when a run ends without firing: no slot left in the season, or the
 #: slot is already ours.
 REASON_ALREADY_BOOKED = "already_booked"
+#: Recorded when the last poll shows somebody else on the slot.
+REASON_SLOT_TAKEN = "slot_taken"
 
 
 def _status_for(error: SkeddaError) -> AttemptStatus:
@@ -215,12 +224,16 @@ class JobRunner:
 
     async def _async_armed(self, _now: datetime) -> None:
         self._unsub = None
-        opens_at = self.job.next_window_open(dt_util.utcnow())
-        if opens_at is None:
+        # Fire at the slot this arming was for, not the nearest one. With a
+        # window longer than the cadence the nearest week is open and usually
+        # already ours; aiming there found it held and never tried the week
+        # whose window was opening. Lost bookings on 2026-09-27 and 2026-10-01.
+        slot = self._armed_interval()
+        if slot is None:
             return
         try:
             await self._async_warm_up()
-            await self._async_execute(opens_at)
+            await self._async_execute(self.job.window.opens_at(slot[0]), slot, racing=True)
         finally:
             # Always re-arm, however the run ended: a failed week must not
             # silently retire the job.
@@ -239,17 +252,37 @@ class JobRunner:
         except SkeddaError as err:
             _LOGGER.warning("Warm-up for job %s failed: %s", self.job.job_id, err)
 
-    async def _async_execute(self, opens_at: datetime) -> BookingOutcome:
-        slot = self.job.next_slot(dt_util.utcnow())
+    def _armed_interval(self) -> tuple[datetime, datetime] | None:
+        """The slot the pending arming was aimed at, or the nearest one."""
+        if self.armed_slot is None:
+            return self.job.next_slot(dt_util.utcnow())
+        return self.job.slot_for(self.armed_slot.date())
+
+    async def _async_execute(
+        self,
+        opens_at: datetime,
+        slot: tuple[datetime, datetime] | None = None,
+        *,
+        racing: bool = False,
+    ) -> BookingOutcome:
+        if slot is None:
+            slot = self.job.next_slot(dt_util.utcnow())
         if slot is None:
             return await self._async_no_op(opens_at, opens_at, reason=None)
         slot_start, slot_end = slot
         # Remember it before anything can fail: a run that crashed half way
         # must still not be repeated in a tight loop.
         self.attempted_slot = slot_start
-        if self._already_booked(slot_start):
-            _LOGGER.debug("Job %s already holds %s", self.job.job_id, slot_start)
-            return await self._async_no_op(slot_start, slot_end, reason=REASON_ALREADY_BOOKED)
+        holder = self._holder(slot_start)
+        if holder is not None:
+            _LOGGER.debug(
+                "Job %s: %s already held (%s)",
+                self.job.job_id,
+                slot_start,
+                "by us" if holder else "by someone else",
+            )
+            reason = REASON_ALREADY_BOOKED if holder else REASON_SLOT_TAKEN
+            return await self._async_no_op(slot_start, slot_end, reason=reason)
 
         request = BookingRequest(
             space_id=self.job.primary_space_id,
@@ -277,6 +310,12 @@ class JobRunner:
                 else:
                     status, detail = AttemptStatus.SUCCESS, None
                     booking_id = booking.id
+                if (
+                    racing
+                    and status is AttemptStatus.WINDOW_CLOSED
+                    and started < opens_at + TOO_EARLY_GRACE
+                ):
+                    status = AttemptStatus.TOO_EARLY
 
                 attempts.append(
                     BookingAttempt(
@@ -327,21 +366,27 @@ class JobRunner:
         await self._async_finish(outcome)
         return outcome
 
-    def _already_booked(self, slot_start: datetime) -> bool:
-        """Whether the last poll already saw this slot on one of our spaces.
+    def _holder(self, slot_start: datetime) -> bool | None:
+        """Who the last poll saw on this slot: True us, False someone else.
 
         Guards against a restart re-firing a job that has already landed: the
         window stays open until the slot starts, so arming again is normal.
+        The poll lists the whole venue, so "held" alone is not "ours" - a slot
+        somebody else won is a lost one, and must be reported as such.
         """
         try:
             bookings = self.entry.runtime_data.coordinator.data.bookings
         except AttributeError:
-            return False
+            return None
         wanted = set(self.job.space_ids)
-        return any(
-            booking.start == slot_start and wanted.intersection(booking.space_ids)
+        held = [
+            booking
             for booking in bookings
-        )
+            if booking.start == slot_start and wanted.intersection(booking.space_ids)
+        ]
+        if not held:
+            return None
+        return any(booking.is_mine for booking in held)
 
     async def _async_no_op(
         self, slot_start: datetime, slot_end: datetime, *, reason: str | None

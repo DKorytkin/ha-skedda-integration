@@ -142,7 +142,8 @@ window: 14 days before
 
 A window that has already opened is not a missed one. The slot stays bookable until
 it starts, so a job whose window opened while Home Assistant was down arms for
-immediately rather than waiting for the next occurrence — guarded by a check of the
+immediately rather than waiting for the next occurrence. Either way a run fires at
+the slot it was armed for, never merely the nearest one — guarded by a check of the
 last poll, so a restart cannot re-submit a booking already held.
 
 The `precise` strategy then works backwards from that instant:
@@ -150,9 +151,9 @@ The `precise` strategy then works backwards from that instant:
 | Offset | Step |
 |---|---|
 | −120 s | Authenticate if needed and open a connection, so no setup cost is paid later. |
-| −120 s … 0 | Sample the venue server's clock from the `Date` response header, correct for half the round trip, and smooth the estimate. |
-| −150 ms | Submit the first request, scheduled against the corrected clock. |
-| −150 ms … +850 ms | Submit up to four further requests, 250 ms apart, stopping on the first success. |
+| −120 s … 0 | Sample the venue server's clock from the `Date` response header, correct for half the round trip and for the header being truncated to the whole second, and smooth the estimate. |
+| −400 ms | Submit the first request, scheduled against the corrected clock. |
+| −400 ms … +1 s | Submit up to seven further requests, 200 ms apart, stopping on the first success. |
 
 Home Assistant's time tracking is used for the coarse wake-up; the final hop uses the
 event loop directly, because the coarse tracker is not accurate below one second.
@@ -167,7 +168,7 @@ taxonomy is deliberately fine-grained.
 | Window not open yet | Retry immediately — this is expected near the boundary. |
 | Slot already taken | Stop. Retrying the same court cannot succeed. |
 | Weekly allowance spent | Stop. A venue rule, not a fault: no retry can change it. |
-| Slot beyond the horizon | Stop. The job's window is wider than the venue's own. |
+| Slot beyond the horizon | Within three seconds of the opening instant, the shot arrived early: retry, as for a window not open yet. Later than that, stop: the job's window is wider than the venue's own. |
 | Session expired | Re-authenticate once, retry once, then stop. |
 | Asked to slow down | Wait two seconds before the next attempt, never answer at burst speed, never escalate. |
 | Unrecognised response | Abandon the run, raise a repair issue, capture the payload in diagnostics. |

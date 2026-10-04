@@ -345,9 +345,13 @@ class WatchRunner:
                 slot = runner.job.next_slot(moment)
                 if slot is None or slot[0] > horizon_end:
                     break
-                # A slot the job has already fired at and lost is no longer
-                # spoken for - and is exactly the week a watch exists for.
-                if runner.attempted_slot != slot[0]:
+                # Only a slot the job will still fire at is spoken for: the
+                # one it is armed for, and those whose window has yet to open.
+                # A slot it fired at and lost, or whose window opened without
+                # it, is exactly the week a watch exists for. Keying this on
+                # the last attempt alone kept such weeks reserved until the
+                # next restart cleared it, or for good.
+                if slot[0] == runner.armed_slot or runner.job.window.opens_at(slot[0]) > now:
                     weeks.add(week_of(slot[0]))
                 moment = slot[0]
         return weeks
