@@ -147,9 +147,15 @@ def rule_schema(spaces: list[Space], defaults: dict[str, Any]) -> vol.Schema:
             vol.Required(
                 CONF_BOOK, default=defaults.get(CONF_BOOK, True)
             ): selector.BooleanSelector(),
-            # No default: an empty date field is how "no end" is written, and
-            # a DateSelector refuses the empty string a default would supply.
-            vol.Optional(CONF_SEASON_END): selector.DateSelector(),
+            # Suggested, not defaulted: an empty date field is how "no end" is
+            # written, and a DateSelector refuses the empty string a default
+            # would supply. Without the suggestion, editing a rule showed the
+            # field empty and saving wiped the end date - a rule meant for one
+            # Tuesday went on watching every Tuesday. Seen 2026-10-08.
+            vol.Optional(
+                CONF_SEASON_END,
+                description={"suggested_value": defaults.get(CONF_SEASON_END)},
+            ): selector.DateSelector(),
             vol.Optional(
                 CONF_NOTIFY_TARGETS, default=defaults.get(CONF_NOTIFY_TARGETS, [])
             ): selector.EntitySelector(

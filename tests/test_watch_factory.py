@@ -71,7 +71,7 @@ def test_a_rule_with_no_weekdays_is_refused_rather_than_silently_idle() -> None:
 def test_the_optional_fields_carry_their_defaults() -> None:
     rule = build_rule("sub-1", DATA, "Europe/Kyiv")
 
-    assert rule.max_block_minutes == 180
+    assert rule.max_block_minutes == 120
     assert rule.min_lead_minutes == 180
     assert rule.allow_other_court is False
     assert rule.notify_targets == ()

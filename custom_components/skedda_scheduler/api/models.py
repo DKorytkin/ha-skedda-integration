@@ -129,6 +129,8 @@ class SkeddaVenue:
     slot_minutes: int
     max_days_ahead: int | None
     weekly_quota_minutes: int | None
+    #: Empty when the venue publishes no hours, which reads as always open.
+    hours: tuple[SkeddaHours, ...] = ()
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> SkeddaVenue:
@@ -139,7 +141,26 @@ class SkeddaVenue:
             slot_minutes=int(payload.get("timeGranularityMinutes") or 0),
             max_days_ahead=_max_days_ahead(payload.get("bookingWindow")),
             weekly_quota_minutes=_weekly_quota(payload.get("quotaRules")),
+            hours=_hours(payload.get("hoursOfAvailability")),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class SkeddaHours:
+    """One hoursOfAvailability rule: when the venue takes bookings at all.
+
+    Seen 2026-10-08 at galaktyka: {"spaceIds": null, "start": 480, "end": 1320,
+    "daysBitmask": 127} - minutes past venue-local midnight, 08:00 to 22:00.
+    A booking outside it is refused with "not fully within the hours of
+    availability".
+    """
+
+    #: Monday is 0, matching datetime.weekday().
+    weekdays: frozenset[int]
+    start_minute: int
+    end_minute: int
+    #: Empty means every space.
+    space_ids: tuple[str, ...] = ()
 
 
 # bookingWindow.rules[].predicate: 1 means "at most N days ahead" - confirmed
@@ -149,6 +170,36 @@ _PREDICATE_MAX_DAYS_AHEAD = 1
 # value counts minutes.
 _PERIOD_WEEK = 2
 _METRIC_MINUTES = 1
+
+
+# daysBitmask: bit 0 is read as Sunday, .NET's DayOfWeek numbering. Every rule
+# seen so far is 127 (every day), so the order is unconfirmed - it only matters
+# at a venue that closes on some days.
+_ALL_DAYS = 127
+
+
+def _weekdays(mask: Any) -> frozenset[int]:
+    bits = int(mask) if isinstance(mask, int) else _ALL_DAYS
+    # Bit n is .NET day n (Sunday first); datetime.weekday() puts Monday first.
+    return frozenset((day - 1) % 7 for day in range(7) if bits & (1 << day))
+
+
+def _hours(block: Any) -> tuple[SkeddaHours, ...]:
+    found: list[SkeddaHours] = []
+    for rule in _rules(block):
+        start, end = rule.get("start"), rule.get("end")
+        if not isinstance(start, int) or not isinstance(end, int):
+            continue
+        spaces = rule.get("spaceIds")
+        found.append(
+            SkeddaHours(
+                weekdays=_weekdays(rule.get("daysBitmask")),
+                start_minute=start,
+                end_minute=end,
+                space_ids=tuple(str(space) for space in spaces) if spaces else (),
+            )
+        )
+    return tuple(found)
 
 
 def _rules(block: Any) -> list[dict[str, Any]]:

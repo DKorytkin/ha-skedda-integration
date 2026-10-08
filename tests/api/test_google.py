@@ -16,6 +16,8 @@ from custom_components.skedda_scheduler.api.errors import (
 from custom_components.skedda_scheduler.api.google import (
     GoogleCalendar,
     GoogleCalendarClient,
+    GoogleListedEvent,
+    event_id_for,
 )
 from tests.conftest import FakeSkedda
 
@@ -240,3 +242,155 @@ async def test_an_event_without_a_colour_lets_the_calendar_decide(
     )
 
     assert "colorId" not in google.requests_for("POST", "/calendars/c/events")[0].json
+
+
+def test_an_event_id_is_worked_out_from_the_booking() -> None:
+    """Same calendar, court and instant - same id, whatever the zone says."""
+    same = event_id_for("c", "court-1", START.astimezone(ZoneInfo("UTC")))
+
+    assert event_id_for("c", "court-1", START) == same
+    assert event_id_for("c", "court-2", START) != same
+    assert set(same) <= set("0123456789abcdef"), "Google takes base32hex only"
+
+
+async def test_an_event_can_be_given_its_id_up_front(
+    http: aiohttp.ClientSession, google: FakeSkedda
+) -> None:
+    google.stub("POST", "/calendars/c/events", json={"id": "abc123"})
+
+    event = await client(http, google).create_event(
+        "c", summary="x", start=START, end=END, timezone="Europe/Kyiv", event_id="abc123"
+    )
+
+    assert event.id == "abc123"
+    assert google.requests_for("POST", "/calendars/c/events")[0].json["id"] == "abc123"
+
+
+async def test_an_id_already_taken_is_written_over_not_refused(
+    http: aiohttp.ClientSession, google: FakeSkedda
+) -> None:
+    """A retry whose first try landed, or a slot booked again after a cancel."""
+    google.stub("POST", "/calendars/c/events", status=409, json={"error": {"message": "dup"}})
+    google.stub("PUT", "/calendars/c/events/abc123", json={"id": "abc123"})
+
+    event = await client(http, google).create_event(
+        "c",
+        summary="x",
+        start=START,
+        end=END,
+        timezone="Europe/Kyiv",
+        attendees=("oleh@example.com",),
+        event_id="abc123",
+    )
+
+    assert event.id == "abc123"
+    put = google.requests_for("PUT", "/calendars/c/events/abc123")[0]
+    assert put.json["status"] == "confirmed"
+    assert put.query["sendUpdates"] == "all"
+
+
+async def test_a_refusal_other_than_a_taken_id_still_raises(
+    http: aiohttp.ClientSession, google: FakeSkedda
+) -> None:
+    google.stub("POST", "/calendars/c/events", status=400, json={"error": {"message": "bad"}})
+
+    with pytest.raises(ApiContractError, match="bad"):
+        await client(http, google).create_event(
+            "c", summary="x", start=START, end=END, timezone="Europe/Kyiv", event_id="abc123"
+        )
+
+
+@pytest.mark.parametrize("status", [429, 500, 503])
+async def test_a_google_that_is_struggling_is_worth_retrying(
+    http: aiohttp.ClientSession, google: FakeSkedda, status: int
+) -> None:
+    google.stub("POST", "/calendars/c/events", status=status, json={})
+
+    with pytest.raises(SkeddaConnectionError):
+        await client(http, google).create_event(
+            "c", summary="x", start=START, end=END, timezone="Europe/Kyiv"
+        )
+
+
+async def test_an_event_is_deleted_and_its_guests_told(
+    http: aiohttp.ClientSession, google: FakeSkedda
+) -> None:
+    google.stub("DELETE", "/calendars/c/events/abc123", status=204)
+
+    assert await client(http, google).delete_event("c", "abc123", notify=True)
+
+    request = google.requests_for("DELETE", "/calendars/c/events/abc123")[0]
+    assert request.query["sendUpdates"] == "all"
+
+
+async def test_deleting_an_event_nobody_was_invited_to_tells_nobody(
+    http: aiohttp.ClientSession, google: FakeSkedda
+) -> None:
+    google.stub("DELETE", "/calendars/c/events/abc123", status=204)
+
+    await client(http, google).delete_event("c", "abc123", notify=False)
+
+    assert "sendUpdates" not in google.requests_for("DELETE", "/calendars/c/events/abc123")[0].query
+
+
+@pytest.mark.parametrize("status", [404, 410])
+async def test_an_event_that_is_not_there_is_not_an_error(
+    http: aiohttp.ClientSession, google: FakeSkedda, status: int
+) -> None:
+    google.stub("DELETE", "/calendars/c/events/abc123", status=status, json={})
+
+    assert not await client(http, google).delete_event("c", "abc123", notify=True)
+
+
+async def test_a_delete_google_refuses_raises(
+    http: aiohttp.ClientSession, google: FakeSkedda
+) -> None:
+    google.stub("DELETE", "/calendars/c/events/abc123", status=400, json={})
+
+    with pytest.raises(ApiContractError):
+        await client(http, google).delete_event("c", "abc123", notify=True)
+
+
+async def test_events_are_found_by_the_time_they_cover(
+    http: aiohttp.ClientSession, google: FakeSkedda
+) -> None:
+    google.stub(
+        "GET",
+        "/calendars/c/events",
+        json={
+            "items": [
+                {
+                    "id": "old-1",
+                    "summary": "Tennis 🎾",
+                    "description": "Skedda booking 7",
+                    "start": {"dateTime": "2026-09-29T20:00:00+03:00"},
+                },
+                {"id": "all-day", "start": {"date": "2026-09-29"}},
+                {"id": "odd", "start": {"dateTime": "not a time"}},
+                "not an event",
+            ]
+        },
+    )
+
+    found = await client(http, google).events_between("c", START, END)
+
+    assert found == [
+        GoogleListedEvent(
+            id="old-1", summary="Tennis 🎾", start=START, description="Skedda booking 7"
+        ),
+        GoogleListedEvent(id="all-day", summary="", start=None, description=""),
+        GoogleListedEvent(id="odd", summary="", start=None, description=""),
+    ]
+    query = google.requests_for("GET", "/calendars/c/events")[0].query
+    assert query["timeMin"] == START.isoformat()
+    assert query["timeMax"] == END.isoformat()
+    assert query["singleEvents"] == "true"
+
+
+async def test_an_event_list_in_an_unknown_shape_is_a_contract_error(
+    http: aiohttp.ClientSession, google: FakeSkedda
+) -> None:
+    google.stub("GET", "/calendars/c/events", json={"nothing": []})
+
+    with pytest.raises(ApiContractError):
+        await client(http, google).events_between("c", START, END)

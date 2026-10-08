@@ -11,10 +11,11 @@ this exists at all.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import aiohttp
@@ -44,12 +45,40 @@ class GoogleCalendar:
     name: str
 
 
+#: Google answers this when an event id is already in use, deleted or not.
+_STATUS_CONFLICT = 409
+#: Gone for good, or never there: either way there is nothing left to delete.
+_STATUS_ABSENT = frozenset({404, 410})
+
+
 @dataclass(frozen=True, slots=True)
 class GoogleEvent:
     """An event as Google echoed it back."""
 
     id: str
     html_link: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class GoogleListedEvent:
+    """An event found by time, for when its id was never recorded."""
+
+    id: str
+    summary: str
+    start: datetime | None
+    description: str
+
+
+def event_id_for(calendar_id: str, space_id: str, start: datetime) -> str:
+    """The id a booking's event gets, worked out rather than remembered.
+
+    Google lets the caller choose the id (base32hex, 5-1024 characters; hex
+    digits are a subset). Choosing it from the booking means a retried insert
+    that had in fact landed is refused instead of duplicated, and a cancelled
+    booking can find its event again without anything having been stored.
+    """
+    key = f"{calendar_id}|{space_id}|{start.astimezone(UTC).isoformat()}"
+    return hashlib.sha1(key.encode(), usedforsecurity=False).hexdigest()
 
 
 class GoogleCalendarClient:
@@ -95,8 +124,14 @@ class GoogleCalendarClient:
         description: str | None = None,
         attendees: tuple[str, ...] = (),
         color_id: str | None = None,
+        event_id: str | None = None,
     ) -> GoogleEvent:
-        """Put the booking in the calendar and invite whoever should come."""
+        """Put the booking in the calendar and invite whoever should come.
+
+        With an `event_id`, an id already taken - by this same event from an
+        earlier try, or by one cancelled since - is overwritten rather than
+        refused: the booking exists now, so its event should too.
+        """
         payload: dict[str, Any] = {
             "summary": summary,
             "start": {"dateTime": start.isoformat(), "timeZone": timezone},
@@ -113,15 +148,69 @@ class GoogleCalendarClient:
             # and no hex values.
             payload["colorId"] = color_id
 
-        body = await self._request(
-            "POST",
-            f"/calendars/{calendar_id}/events",
-            params={"sendUpdates": SEND_UPDATES} if attendees else None,
-            json_body=payload,
-        )
+        params = {"sendUpdates": SEND_UPDATES} if attendees else None
+        path = f"/calendars/{calendar_id}/events"
+        if event_id is None:
+            body = await self._request("POST", path, params=params, json_body=payload)
+        else:
+            status, body = await self._send(
+                "POST", path, params=params, json_body={**payload, "id": event_id}
+            )
+            if status == _STATUS_CONFLICT:
+                # A cancelled event keeps its id; "confirmed" brings it back.
+                body = await self._request(
+                    "PUT",
+                    f"{path}/{event_id}",
+                    params=params,
+                    json_body={**payload, "status": "confirmed"},
+                )
+            else:
+                self._raise_for(status, body, "POST", path)
         if not isinstance(body, dict) or "id" not in body:
             raise ApiContractError("the created event carried no id")
         return GoogleEvent(id=str(body["id"]), html_link=body.get("htmlLink"))
+
+    async def delete_event(self, calendar_id: str, event_id: str, *, notify: bool) -> bool:
+        """Remove an event; False when there was none to remove.
+
+        `notify` tells the guests it is off - the same email that told them
+        it was on.
+        """
+        path = f"/calendars/{calendar_id}/events/{event_id}"
+        status, body = await self._send(
+            "DELETE", path, params={"sendUpdates": SEND_UPDATES} if notify else None
+        )
+        if status in _STATUS_ABSENT:
+            return False
+        self._raise_for(status, body, "DELETE", path)
+        return True
+
+    async def events_between(
+        self, calendar_id: str, start: datetime, end: datetime
+    ) -> list[GoogleListedEvent]:
+        """Events overlapping this interval, cancelled ones left out."""
+        body = await self._request(
+            "GET",
+            f"/calendars/{calendar_id}/events",
+            params={
+                "timeMin": start.isoformat(),
+                "timeMax": end.isoformat(),
+                "singleEvents": "true",
+            },
+        )
+        items = body.get("items") if isinstance(body, dict) else None
+        if not isinstance(items, list):
+            raise ApiContractError("the event list carried no items")
+        return [
+            GoogleListedEvent(
+                id=str(item["id"]),
+                summary=str(item.get("summary") or ""),
+                start=_event_start(item),
+                description=str(item.get("description") or ""),
+            )
+            for item in items
+            if isinstance(item, dict) and "id" in item
+        ]
 
     async def _request(
         self,
@@ -131,6 +220,19 @@ class GoogleCalendarClient:
         params: dict[str, str] | None = None,
         json_body: dict[str, Any] | None = None,
     ) -> Any:
+        status, body = await self._send(method, path, params=params, json_body=json_body)
+        self._raise_for(status, body, method, path)
+        return body
+
+    async def _send(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, str] | None = None,
+        json_body: dict[str, Any] | None = None,
+    ) -> tuple[int, Any]:
+        """The status and body, whatever they are. Only the network raises."""
         token = await self._token()
         try:
             async with self._http.request(
@@ -140,18 +242,22 @@ class GoogleCalendarClient:
                 params=params,
                 json=json_body,
             ) as response:
-                body = await self._read(response)
-                if response.status in (401, 403):
-                    # The token is the only credential here; nothing else can
-                    # be wrong in a way a retry would fix.
-                    raise SkeddaAuthError(_detail(body) or "Google rejected the token")
-                if response.status >= 400:
-                    raise ApiContractError(
-                        _detail(body) or f"{method} {path} failed with status {response.status}"
-                    )
-                return body
+                return response.status, await self._read(response)
         except (aiohttp.ClientError, TimeoutError) as err:
             raise SkeddaConnectionError(f"{method} {path} failed: {err}") from err
+
+    @staticmethod
+    def _raise_for(status: int, body: Any, method: str, path: str) -> None:
+        if status in (401, 403):
+            # The token is the only credential here; nothing else can be
+            # wrong in a way a retry would fix.
+            raise SkeddaAuthError(_detail(body) or "Google rejected the token")
+        detail = _detail(body) or f"{method} {path} failed with status {status}"
+        if status == 429 or status >= 500:
+            # Google's side, and passing: the same as a network that is down.
+            raise SkeddaConnectionError(detail)
+        if status >= 400:
+            raise ApiContractError(detail)
 
     @staticmethod
     async def _read(response: aiohttp.ClientResponse) -> Any:
@@ -160,6 +266,17 @@ class GoogleCalendarClient:
         except ValueError, aiohttp.ClientError:
             _LOGGER.debug("Google answered %s with something other than JSON", response.url)
             return None
+
+
+def _event_start(item: dict[str, Any]) -> datetime | None:
+    start = item.get("start")
+    raw = start.get("dateTime") if isinstance(start, dict) else None
+    if not isinstance(raw, str):
+        return None
+    try:
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        return None
 
 
 def _detail(body: Any) -> str | None:
@@ -179,5 +296,7 @@ __all__ = [
     "GoogleCalendar",
     "GoogleCalendarClient",
     "GoogleEvent",
+    "GoogleListedEvent",
     "SkeddaError",
+    "event_id_for",
 ]

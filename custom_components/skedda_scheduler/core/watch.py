@@ -8,7 +8,7 @@ testable as a table of cases.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, tzinfo
 from enum import StrEnum
@@ -52,8 +52,9 @@ class WatchRule:
     duration_minutes: int
     venue_timezone: str
     mode: WatchMode = WatchMode.BOTH
-    #: The most we may hold in one contiguous block on one day.
-    max_block_minutes: int = 180
+    #: The most we may hold on one day, whatever made those bookings. Two
+    #: hours is two slots: a day that already has them is full.
+    max_block_minutes: int = 120
     allow_other_court: bool = False
     #: A slot starting sooner than this is no use: nobody can be gathered.
     min_lead_minutes: int = 180
@@ -145,17 +146,24 @@ class Candidate:
     neighbour: bool
 
 
+#: Whether the venue takes bookings of this space at this time at all.
+IsOpen = Callable[[str, datetime, datetime], bool]
+
+
 def candidates(
     rule: WatchRule,
     spaces: Sequence[str],
     now: datetime,
     horizon_end: datetime,
     slot_minutes: int,
+    is_open: IsOpen | None = None,
 ) -> list[Candidate]:
     """Every slot this rule would take, before asking whether it is free.
 
     The venue's grid decides the starts: offering 19:10 at a venue that books
-    on the hour spends a request to learn what was already knowable.
+    on the hour spends a request to learn what was already knowable. Its hours
+    decide the ends: a rule reading 18:00-23:00 at a court that shuts at 22:00
+    asked for 22:00 on every scan and was refused every time. Seen 2026-10-08.
     """
     duration = timedelta(minutes=rule.duration_minutes)
     earliest = now + timedelta(minutes=rule.min_lead_minutes)
@@ -174,6 +182,7 @@ def candidates(
                     found.extend(
                         Candidate(rule.rule_id, space, start, start + duration, neighbour=False)
                         for space in wanted
+                        if is_open is None or is_open(space, start, start + duration)
                     )
                 start += timedelta(minutes=slot_minutes)
         day += timedelta(days=1)
@@ -247,28 +256,16 @@ def _ours_on(day: date, ours: Mapping[str, Sequence[Booking]]) -> list[Booking]:
     ]
 
 
-def _block_minutes(candidate: Candidate, mine: Sequence[Booking]) -> int:
-    """How long the contiguous run containing this candidate would be.
+def _day_minutes(candidate: Candidate, mine: Sequence[Booking]) -> int:
+    """How much of the day we would hold with this candidate taken.
 
-    Walks outward through bookings that touch it, so two separate blocks on
-    one day are measured separately rather than added together.
+    The whole day, not the block around the candidate: a day reading 19:00 and
+    20:00 already has its two slots, and a third next to them - or apart from
+    them - is one too many. Measured as a block, two separate hours left room
+    for a third beside either.
     """
-    total = int((candidate.end - candidate.start).total_seconds() // 60)
-    start, end = candidate.start, candidate.end
-    counted: set[str] = set()
-    growing = True
-    while growing:
-        growing = False
-        for booking in mine:
-            if booking.id in counted:
-                continue
-            if booking.end == start or booking.start == end:
-                total += int((booking.end - booking.start).total_seconds() // 60)
-                start = min(start, booking.start)
-                end = max(end, booking.end)
-                counted.add(booking.id)
-                growing = True
-    return total
+    held = sum(int((booking.end - booking.start).total_seconds() // 60) for booking in mine)
+    return held + int((candidate.end - candidate.start).total_seconds() // 60)
 
 
 def _is_neighbour(candidate: Candidate, rule: WatchRule, mine: Sequence[Booking]) -> bool:
@@ -276,6 +273,15 @@ def _is_neighbour(candidate: Candidate, rule: WatchRule, mine: Sequence[Booking]
         (booking.end == candidate.start or booking.start == candidate.end)
         and (rule.allow_other_court or candidate.space_id in booking.space_ids)
         for booking in mine
+    )
+
+
+def _was_released(
+    candidate: Candidate, released: Collection[tuple[str, datetime, datetime]]
+) -> bool:
+    return any(
+        space_id == candidate.space_id and start < candidate.end and candidate.start < end
+        for space_id, start, end in released
     )
 
 
@@ -308,7 +314,8 @@ def evaluate(
     horizon_end: datetime,
     slot_minutes: int,
     reserved: Mapping[str, Collection[tuple[int, int]]] | None = None,
-    released: Collection[tuple[str, str]] | None = None,
+    released: Collection[tuple[str, datetime, datetime]] | None = None,
+    is_open: IsOpen | None = None,
 ) -> Catch | None:
     """The one slot worth taking now, or None.
 
@@ -316,17 +323,18 @@ def evaluate(
     block, so the next decision has to be made against the world as it then
     is rather than against this snapshot.
 
-    `released` names slots we gave up ourselves. They are free, they match the
-    rules, and taking them back is the last thing anybody wants - somebody
-    cancelled that court on purpose.
+    `released` names slots we gave up ourselves, as (space, start, end). They
+    are free, they match the rules, and taking them back is the last thing
+    anybody wants - somebody cancelled that court on purpose. Anything that
+    overlaps one counts, so a two-hour booking given up keeps both its hours.
     """
     released = released or ()
     best: tuple[tuple[int, int, int, datetime], Catch] | None = None
     for rule in rules:
         if not rule.enabled:
             continue
-        for candidate in candidates(rule, spaces, now, horizon_end, slot_minutes):
-            if (candidate.space_id, candidate.start.isoformat()) in released:
+        for candidate in candidates(rule, spaces, now, horizon_end, slot_minutes, is_open):
+            if _was_released(candidate, released):
                 continue
             if not is_free(candidate, everyone):
                 continue
@@ -335,7 +343,7 @@ def evaluate(
             if mine_today:
                 if rule.mode is WatchMode.WINDOW or not neighbour:
                     continue
-                if _block_minutes(candidate, mine_today) > rule.max_block_minutes:
+                if _day_minutes(candidate, mine_today) > rule.max_block_minutes:
                     continue
             elif rule.mode is WatchMode.NEIGHBOUR:
                 continue

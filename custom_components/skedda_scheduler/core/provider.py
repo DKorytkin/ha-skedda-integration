@@ -70,6 +70,38 @@ class DateRange:
 
 
 @dataclass(frozen=True, slots=True)
+class OpenHours:
+    """When the venue lets anybody book, in venue-local minutes past midnight.
+
+    A booking has to sit wholly inside one of these. Outside them the venue
+    refuses every request, so asking is a request spent on a known answer.
+    """
+
+    #: Monday is 0, matching datetime.weekday().
+    weekdays: frozenset[int]
+    start_minute: int
+    end_minute: int
+    #: Empty means every space.
+    space_ids: tuple[str, ...] = ()
+
+    def admits(self, space_id: str, start: datetime, end: datetime) -> bool:
+        """Whether this interval, already in venue time, fits inside these hours.
+
+        Counted from the start's midnight, so hours that run to 24:00 admit a
+        booking ending at midnight.
+        """
+        if self.space_ids and space_id not in self.space_ids:
+            return False
+        opens = start.hour * 60 + start.minute
+        closes = opens + int((end - start).total_seconds() // 60)
+        return (
+            start.weekday() in self.weekdays
+            and opens >= self.start_minute
+            and closes <= self.end_minute
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class VenueRules:
     """The venue settings that decide whether a job can ever succeed.
 
@@ -82,6 +114,12 @@ class VenueRules:
     slot_minutes: int
     max_days_ahead: int | None
     weekly_quota_minutes: int | None
+    #: Empty means the venue has said nothing, which is read as always open.
+    hours: tuple[OpenHours, ...] = ()
+
+    def is_open(self, space_id: str, start: datetime, end: datetime) -> bool:
+        """Whether the venue would accept a booking of this space at this time."""
+        return not self.hours or any(hours.admits(space_id, start, end) for hours in self.hours)
 
 
 @runtime_checkable

@@ -133,6 +133,26 @@ async def test_a_rule_can_be_edited_afterwards(
     assert watch.subentries[rule_id].title == "Renamed"
 
 
+async def test_editing_a_rule_offers_its_end_date_back(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Seen 2026-10-08: a rule for one Tuesday went on watching every Tuesday.
+
+    The edit form showed "watch until" empty, so saving it wrote no end date.
+    """
+    await setup_with_job(hass, mock_entry)
+    watch = await watch_entry_with_rule(hass, season_end="2026-10-13")
+    rule_id = next(iter(watch.subentries))
+
+    result = await hass.config_entries.subentries.async_init(
+        (watch.entry_id, SUBENTRY_TYPE_WATCH_RULE),
+        context={"source": "reconfigure", "subentry_id": rule_id},
+    )
+    field = next(key for key in result["data_schema"].schema if key == "season_end")
+
+    assert field.description == {"suggested_value": "2026-10-13"}
+
+
 async def test_a_watch_with_no_account_loaded_offers_no_courts(
     hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
 ) -> None:

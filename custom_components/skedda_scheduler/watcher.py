@@ -7,6 +7,7 @@ the world and carries out the verdict.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta
 
@@ -15,6 +16,7 @@ from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.util import dt as dt_util
 
+from . import google_calendar
 from .api.errors import SkeddaError
 from .const import CONF_VENUE, DEFAULT_WINDOW_DAYS, DOMAIN, SUBENTRY_TYPE_WATCH_RULE
 from .coordinator import SkeddaData
@@ -47,7 +49,7 @@ def _nearest_start(
     data: SkeddaData,
 ) -> datetime | None:
     """When this rule's next candidate slot begins, if it has one at all."""
-    found = candidates(rule, spaces, now, horizon, data.rules.slot_minutes)
+    found = candidates(rule, spaces, now, horizon, data.rules.slot_minutes, data.rules.is_open)
     return min((candidate.start for candidate in found), default=None)
 
 
@@ -72,6 +74,10 @@ class WatchRunner:
         self._held: dict[str, set[tuple[str, str, str]]] = {}
         #: Which account does the reading this time round.
         self._reader = 0
+        #: Every account's poll starts a scan, and six landing together raced
+        #: each other to the same slot. One at a time, each seeing what the
+        #: one before it booked.
+        self._scanning = asyncio.Lock()
 
     @callback
     def async_add_listener(self, listener: CALLBACK_TYPE) -> CALLBACK_TYPE:
@@ -189,6 +195,10 @@ class WatchRunner:
 
     async def async_scan(self) -> Catch | None:
         """One pass: gate, decide, book, report."""
+        async with self._scanning:
+            return await self._async_scan()
+
+    async def _async_scan(self) -> Catch | None:
         accounts = self.accounts()
         rules = [rule for rule in self.rules if rule.enabled]
         if not accounts or not rules:
@@ -233,15 +243,20 @@ class WatchRunner:
             data.rules.slot_minutes,
             reserved,
             self._released(accounts),
+            data.rules.is_open,
         )
         if catch is None:
             return None
 
         rule = next(rule for rule in rules if rule.rule_id == catch.rule_id)
-        if rule.book and not await self._async_book(catch, rule):
-            return None
+        booking_id: str | None = None
+        if rule.book:
+            booked = await self._async_book(catch, rule)
+            if booked is None:
+                return None
+            booking_id = booked.id
         self.last_catch = catch
-        await self._async_report(catch, rule, booked=rule.book)
+        await self._async_report(catch, rule, booked=rule.book, booking_id=booking_id)
         self._notify()
         return catch
 
@@ -280,25 +295,27 @@ class WatchRunner:
         # Next round belongs to somebody else.
         self._reader = (self._reader + 1) % len(accounts)
 
-    async def _async_book(self, catch: Catch, rule: WatchRule) -> bool:
+    async def _async_book(self, catch: Catch, rule: WatchRule) -> Booking | None:
         entry = next(entry for entry in self.accounts() if entry.entry_id == catch.account_id)
         request = BookingRequest(
             space_id=catch.space_id, start=catch.start, end=catch.end, title=rule.name
         )
         async with entry.runtime_data.semaphore:
             try:
-                await entry.runtime_data.provider.book(request)
+                booked: Booking = await entry.runtime_data.provider.book(request)
             except SkeddaError as err:
                 # Losing the race is the ordinary outcome, not a fault: the
                 # slot was free a moment ago and now is not.
                 _LOGGER.info("Watch rule %s did not get %s: %s", rule.name, catch.start, err)
-                return False
+                return None
         # The booking spent an hour and changed the block, so the next decision
         # must not be made against the snapshot this one came from.
         await entry.runtime_data.coordinator.async_request_refresh()
-        return True
+        return booked
 
-    async def _async_report(self, catch: Catch, rule: WatchRule, *, booked: bool) -> None:
+    async def _async_report(
+        self, catch: Catch, rule: WatchRule, *, booked: bool, booking_id: str | None
+    ) -> None:
         now = dt_util.utcnow()
         paid_by = next(
             (entry.title for entry in self.accounts() if entry.entry_id == catch.account_id), None
@@ -306,7 +323,7 @@ class WatchRunner:
         outcome = BookingOutcome(
             job_id=rule.rule_id,
             succeeded=booked,
-            booking_id=None,
+            booking_id=booking_id,
             space_id=catch.space_id,
             slot_start=catch.start,
             slot_end=catch.end,
@@ -367,11 +384,15 @@ class WatchRunner:
         """Record bookings of ours that have disappeared since the last scan.
 
         Whoever cancelled it - the panel, the Skedda app, the venue - the
-        answer is the same: we are not to take that court back on our own.
-        Only slots still in the future count; the rest merely aged out of the
-        window we ask about.
+        answer is the same: we are not to take that court back on our own,
+        and its calendar event goes too. Only slots still in the future count;
+        the rest merely aged out of the window we ask about.
+
+        The last scan's view is kept on disk, so a booking cancelled while
+        Home Assistant was restarting is caught on the first scan after it.
         """
         for entry in accounts:
+            store = entry.runtime_data.store
             held = {
                 (
                     booking.space_ids[0] if booking.space_ids else "",
@@ -381,21 +402,31 @@ class WatchRunner:
                 for booking in ours.get(entry.entry_id, ())
             }
             previous = self._held.get(entry.entry_id)
-            self._held[entry.entry_id] = held
             if previous is None:
-                # First scan of this run: nothing to compare against, and
+                previous = store.held()
+            self._held[entry.entry_id] = held
+            await store.async_note_held(held)
+            if previous is None:
+                # Never scanned before: nothing to compare against, and
                 # treating everything as released would block the lot.
                 continue
+            # The panel notes its own cancellations, and removes their events.
+            known = store.released_intervals()
             for space_id, start, end in previous - held:
                 moment = dt_util.parse_datetime(start)
-                if moment is not None and moment > now:
-                    await entry.runtime_data.store.async_note_released(
-                        space_id, moment, dt_util.parse_datetime(end) or moment
-                    )
+                until = dt_util.parse_datetime(end) or moment
+                if moment is None or until is None or moment <= now:
+                    continue
+                if (space_id, moment, until) in known:
+                    continue
+                await store.async_note_released(space_id, moment, until)
+                await google_calendar.async_release_event(self.hass, space_id, moment, until)
 
-    def _released(self, accounts: list[ConfigEntry]) -> set[tuple[str, str]]:
+    def _released(self, accounts: list[ConfigEntry]) -> set[tuple[str, datetime, datetime]]:
         """Every slot any of our accounts gave up."""
-        return {slot for entry in accounts for slot in entry.runtime_data.store.released_slots()}
+        return {
+            slot for entry in accounts for slot in entry.runtime_data.store.released_intervals()
+        }
 
     def _mine(self, entry: ConfigEntry) -> list[Booking]:
         data = entry.runtime_data.coordinator.data

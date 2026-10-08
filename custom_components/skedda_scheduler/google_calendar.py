@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -84,3 +85,20 @@ async def async_build_sink(hass: HomeAssistant) -> GoogleCalendarSink | None:
         attendees=tuple(entry.data.get(CONF_ATTENDEES) or ()),
         color_id=str(entry.data.get(CONF_EVENT_COLOR) or DEFAULT_EVENT_COLOR),
     )
+
+
+async def async_release_event(
+    hass: HomeAssistant,
+    space_id: str,
+    start: datetime,
+    end: datetime,
+    booking_id: str | None = None,
+) -> None:
+    """Remove a released booking's event, when a calendar is linked.
+
+    A cancelled court that stays in everybody's diary brings people to a court
+    somebody else is now playing on.
+    """
+    sink = await async_build_sink(hass)
+    if sink is not None:
+        await sink.async_release(space_id, start, end, booking_id)

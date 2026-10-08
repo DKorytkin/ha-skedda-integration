@@ -97,8 +97,15 @@ The event's description names the account the court is held under. With more
 than one account that is the only way to tell who can change or release it.
 
 Only bookings that succeeded are written. If Google cannot be reached the
-booking still stands and the failure is logged — a missing diary entry must not
-look like a lost court.
+booking still stands and the event is tried again after 30 seconds, 2, 5, 15,
+30 and 60 minutes; each failure is logged — a missing diary entry must not look
+like a lost court. Retries live in memory, so a restart in the middle drops
+them.
+
+A booking released — from the panel, from the Skedda app, by the venue — has
+its event removed, and invited guests get Google's cancellation email. The
+watch notices a release made outside Home Assistant on its next look at the
+account.
 
 Change any of it later with **Reconfigure** on the Google Calendar entry; the
 link itself is not renegotiated.
@@ -179,17 +186,17 @@ hour a week, three accounts are what three hours in a row costs.
 | Field | Default | Meaning |
 |---|---|---|
 | **Name** | — | What the rule is for: `Our evening` |
-| **Days** | — | Only these weekdays are watched |
+| **Days** | — | Only these weekdays are watched; every week, unless **Watch until** ends it |
 | **Not before / not after** | 19:00 / 21:00 | A slot must start at or after the first and end at or before the second |
 | **Courts** | any | Which spaces, in preference order |
 | **Duration** | 60 min | How long a slot to take |
 | **What counts as a catch** | both | See below |
-| **Most hours in a row** | 180 min | A catch is refused if it would build a longer block |
+| **Most minutes in one day** | 120 min | A catch is refused if it would leave us holding more than this that day, counting every booking we have there |
 | **A neighbour may be on another court** | off | Whether a block may continue on a different space |
 | **Ignore slots starting sooner than** | 180 min | A court starting in an hour cannot be filled with people |
 | **How often to look** | Stepped | Calm 30/15/5, Stepped 15/5/2, Fast 5/2/1 minutes |
 | **Book it** | on | Turn off to be told and take it yourself |
-| **Watch until** | empty | End of season |
+| **Watch until** | empty | The last day watched. For a rule meant for one day, pick that day |
 | **Tell these services** | none | Notify services told about each catch |
 
 There is no horizon field: the horizon is always today to the venue's last open
@@ -199,16 +206,19 @@ day, because nothing beyond it can be booked at all.
 
 **Next to ours** grows a block. When you already hold an hour that day, the
 watch will take the hour immediately before or after it - on the same court
-unless you allow another - as long as the whole run stays inside the cap. Two
-accounts make two hours; three make three. If every hour of yours that day
-already has neighbours, or the block is at its cap, the rule refuses and says
-nothing: that is a normal outcome, not a failure.
+unless you allow another - as long as the day stays inside the cap. With the
+default cap a day that already has two hours is full. If every hour of yours
+that day already has neighbours, or the day is at its cap, the rule refuses and
+says nothing: that is a normal outcome, not a failure.
+
+A rule never asks for an hour the venue is shut, read from the venue's hours of
+availability, and never takes back a court one of ours gave up.
 
 **Any free slot** applies only on a day you hold nothing at all. This is the
 case where every attempt was lost and the group would otherwise not play.
 
-With both enabled, a neighbour wins: growing a block to three hours is worth
-more than a lone hour elsewhere.
+With both enabled, a neighbour wins: growing a block is worth more than a lone
+hour elsewhere.
 
 ### What it costs the venue
 

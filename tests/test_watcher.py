@@ -341,7 +341,9 @@ async def test_the_reading_is_passed_around_the_accounts(
     """Always the same reader is one member polling all day for everyone."""
     await setup_account(hass, mock_entry)
     second = await extra_account()
-    watch = await watch_entry_with_rule(hass)
+    # Notify only: a catch would refresh an account, and the scan that refresh
+    # starts in the background would take a turn of its own.
+    watch = await watch_entry_with_rule(hass, book=False)
     runner = watch.runtime_data.watcher
     accounts = runner.accounts()
 
@@ -625,10 +627,9 @@ async def test_a_booking_that_disappears_is_remembered_as_given_up(
     await mock_entry.runtime_data.coordinator.async_refresh()
     await runner.async_scan()
 
-    assert (
-        held.space_ids[0],
-        held.start.isoformat(),
-    ) in mock_entry.runtime_data.store.released_slots()
+    assert (held.space_ids[0], held.start, held.end) in (
+        mock_entry.runtime_data.store.released_intervals()
+    )
 
 
 async def test_a_slot_given_up_is_never_caught_again(
@@ -666,7 +667,7 @@ async def test_a_booking_that_merely_aged_out_is_not_a_release(
     await mock_entry.runtime_data.coordinator.async_refresh()
     await watch.runtime_data.watcher.async_scan()
 
-    assert mock_entry.runtime_data.store.released_slots() == set()
+    assert mock_entry.runtime_data.store.released_intervals() == set()
 
 
 async def test_the_first_scan_after_a_restart_releases_nothing(
@@ -679,7 +680,7 @@ async def test_the_first_scan_after_a_restart_releases_nothing(
 
     await watch.runtime_data.watcher.async_scan()
 
-    assert mock_entry.runtime_data.store.released_slots() == set()
+    assert mock_entry.runtime_data.store.released_intervals() == set()
 
 
 async def test_a_week_whose_window_opened_without_the_job_is_not_reserved(
@@ -707,3 +708,103 @@ async def test_a_week_whose_window_opened_without_the_job_is_not_reserved(
 
     assert week_of(nearest) not in weeks
     assert week_of(later) in weeks
+
+
+async def test_a_booking_cancelled_while_home_assistant_was_down_is_a_release(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """What we held is kept on disk, so a restart does not forget it."""
+    held = mine(3, 20)
+    mock_provider.list_bookings.return_value = [held]
+    await setup_account(hass, mock_entry)
+    watch = await watch_entry_with_rule(hass, book=False)
+    await watch.runtime_data.watcher.async_scan()
+
+    mock_provider.list_bookings.return_value = []
+    await mock_entry.runtime_data.coordinator.async_refresh()
+    # A fresh runner, with nothing in memory - the restart.
+    assert await hass.config_entries.async_reload(watch.entry_id)
+    await hass.async_block_till_done()
+
+    assert (held.space_ids[0], held.start, held.end) in (
+        mock_entry.runtime_data.store.released_intervals()
+    )
+
+
+async def test_a_release_takes_its_calendar_event_with_it(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Cancelled in the Skedda app: the court is gone, so is the diary entry."""
+    held = mine(3, 20)
+    mock_provider.list_bookings.return_value = [held]
+    await setup_account(hass, mock_entry)
+    watch = await watch_entry_with_rule(hass, book=False)
+    runner = watch.runtime_data.watcher
+    await runner.async_scan()
+
+    mock_provider.list_bookings.return_value = []
+    with patch("custom_components.skedda_scheduler.google_calendar.async_release_event") as release:
+        # The refresh starts a scan of its own; either may see the release.
+        await mock_entry.runtime_data.coordinator.async_refresh()
+        await runner.async_scan()
+        await hass.async_block_till_done()
+
+    release.assert_awaited_once()
+    assert release.await_args.args[1:] == (held.space_ids[0], held.start, held.end)
+
+
+async def test_a_slot_the_panel_already_released_is_not_released_twice(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """The panel removed the event itself; a second delete would be noise."""
+    held = mine(3, 20)
+    mock_provider.list_bookings.return_value = [held]
+    await setup_account(hass, mock_entry)
+    watch = await watch_entry_with_rule(hass, book=False)
+    runner = watch.runtime_data.watcher
+    await runner.async_scan()
+
+    await mock_entry.runtime_data.store.async_note_released(held.space_ids[0], held.start, held.end)
+    mock_provider.list_bookings.return_value = []
+    with patch("custom_components.skedda_scheduler.google_calendar.async_release_event") as release:
+        # The refresh starts a scan of its own; either may see the release.
+        await mock_entry.runtime_data.coordinator.async_refresh()
+        await runner.async_scan()
+        await hass.async_block_till_done()
+
+    release.assert_not_awaited()
+
+
+async def test_a_catch_carries_the_id_of_the_booking_it_made(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """The calendar event names it, so the booking can be found again."""
+    await setup_account(hass, mock_entry)
+    watch = await watch_entry_with_rule(hass)
+    with patch("custom_components.skedda_scheduler.watcher.async_dispatch") as dispatch:
+        caught = await watch.runtime_data.watcher.async_scan()
+
+    assert caught is not None
+    assert dispatch.await_args.args[1].booking_id.startswith("caught-")
+
+
+async def test_the_watch_never_asks_for_an_hour_the_venue_is_shut(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Seen 2026-10-08: 22:00 asked for on every scan, refused every time."""
+    from dataclasses import replace
+
+    from custom_components.skedda_scheduler.core.provider import OpenHours
+    from tests.conftest import VENUE_RULES
+
+    mock_provider.venue_settings.return_value = replace(
+        VENUE_RULES,
+        hours=(OpenHours(weekdays=frozenset(range(7)), start_minute=480, end_minute=1140),),
+    )
+    await setup_account(hass, mock_entry)
+    watch = await watch_entry_with_rule(hass)
+
+    caught = await watch.runtime_data.watcher.async_scan()
+
+    assert caught is None
+    mock_provider.book.assert_not_awaited()

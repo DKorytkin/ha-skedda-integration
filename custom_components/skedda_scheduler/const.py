@@ -89,9 +89,8 @@ EVENT_SLOT_CAUGHT: Final = f"{DOMAIN}_slot_caught"
 
 SERVICE_SLOT_FREED: Final = "slot_freed"
 
-#: Two players' worth of doubles either side of an hour, and the default cap on
-#: a block a watch rule may build.
-DEFAULT_MAX_BLOCK_MINUTES: Final = 180
+#: The most a watch rule may leave us holding on one day: two slots.
+DEFAULT_MAX_BLOCK_MINUTES: Final = 120
 #: A court starting sooner than this cannot be filled with people.
 DEFAULT_MIN_LEAD_MINUTES: Final = 180
 

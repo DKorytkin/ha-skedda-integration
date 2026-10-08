@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from .api.client import SkeddaClient
 from .api.models import SkeddaBooking, SkeddaBookingRequest
-from .core.provider import Booking, BookingRequest, DateRange, Space, VenueRules
+from .core.provider import Booking, BookingRequest, DateRange, OpenHours, Space, VenueRules
 
 
 class SkeddaProvider:
@@ -42,6 +42,15 @@ class SkeddaProvider:
             slot_minutes=venue.slot_minutes,
             max_days_ahead=venue.max_days_ahead,
             weekly_quota_minutes=venue.weekly_quota_minutes,
+            hours=tuple(
+                OpenHours(
+                    weekdays=hours.weekdays,
+                    start_minute=hours.start_minute,
+                    end_minute=hours.end_minute,
+                    space_ids=hours.space_ids,
+                )
+                for hours in venue.hours
+            ),
         )
 
     async def book(self, request: BookingRequest) -> Booking:

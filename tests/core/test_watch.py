@@ -269,7 +269,14 @@ def test_a_block_already_at_the_cap_rejects_a_further_neighbour() -> None:
     everyone = [booking(1, 19), booking(1, 20), booking(1, 21)]
 
     caught = evaluate(
-        [every_day(not_before=time(17, 0), not_after=time(23, 0), mode=WatchMode.NEIGHBOUR)],
+        [
+            every_day(
+                not_before=time(17, 0),
+                not_after=time(23, 0),
+                mode=WatchMode.NEIGHBOUR,
+                max_block_minutes=180,
+            )
+        ],
         ours,
         everyone,
         60,
@@ -287,7 +294,14 @@ def test_a_block_below_the_cap_still_grows() -> None:
     everyone = [booking(1, 19), booking(1, 20)]
 
     caught = evaluate(
-        [every_day(not_before=time(17, 0), not_after=time(23, 0), mode=WatchMode.NEIGHBOUR)],
+        [
+            every_day(
+                not_before=time(17, 0),
+                not_after=time(23, 0),
+                mode=WatchMode.NEIGHBOUR,
+                max_block_minutes=180,
+            )
+        ],
         ours,
         everyone,
         60,
@@ -302,6 +316,67 @@ def test_a_block_below_the_cap_still_grows() -> None:
         datetime(2026, 10, 1, 18, tzinfo=KYIV),
         datetime(2026, 10, 1, 21, tzinfo=KYIV),
     }
+
+
+def test_a_day_with_two_slots_already_is_full() -> None:
+    """Seen 2026-10-08: 19:00 and 20:00 held, and 18:00 caught beside them.
+
+    Two jobs had the Tuesday's two hours; a rule reading 18:00-21:00 took the
+    hour before them as a third. Two slots is the default ceiling for a day.
+    """
+    tuesday = [booking(20, 19), booking(20, 20)]
+    ours = {"acc-a": [tuesday[0]], "acc-b": [tuesday[1]], "acc-c": []}
+
+    caught = evaluate(
+        [
+            rule(
+                weekdays=frozenset({1}),
+                not_before=time(18),
+                not_after=time(21),
+                space_ids=(),
+                mode=WatchMode.NEIGHBOUR,
+            )
+        ],
+        ours,
+        tuesday,
+        60,
+        ALL_SPACES,
+        datetime(2026, 10, 8, 17, tzinfo=KYIV),
+        datetime(2026, 10, 22, tzinfo=KYIV),
+        60,
+    )
+
+    assert caught is None
+
+
+def test_the_day_cap_counts_bookings_apart_from_the_block_too() -> None:
+    """Two hours apart are still two hours of the day."""
+    ours = {"acc-a": [booking(1, 17)], "acc-b": [booking(1, 20)], "acc-c": []}
+
+    caught = evaluate(
+        [every_day(not_before=time(16, 0), not_after=time(22, 0))],
+        ours,
+        [booking(1, 17), booking(1, 20)],
+        60,
+        ALL_SPACES,
+        NOW,
+        datetime(2026, 10, 2, tzinfo=KYIV),
+        60,
+    )
+
+    assert caught is None
+
+
+def test_the_venues_hours_bound_the_candidates() -> None:
+    """Seen 2026-10-08: 22:00 asked for on every scan at a court shut at 22:00."""
+    late = rule(weekdays=frozenset({3}), not_before=time(21), not_after=time(23))
+
+    def shuts_at_ten(space: str, start: datetime, end: datetime) -> bool:
+        return end.hour <= 22 and end.date() == start.date()
+
+    found = candidates(late, ALL_SPACES, NOW, datetime(2026, 10, 2, tzinfo=KYIV), 60, shuts_at_ten)
+
+    assert [c.start.hour for c in found] == [21]
 
 
 def test_neighbour_mode_ignores_a_day_where_we_hold_nothing() -> None:
@@ -485,14 +560,37 @@ def test_a_slot_we_gave_up_ourselves_is_not_taken_back() -> None:
         NOW,
         datetime(2026, 10, 2, tzinfo=KYIV),
         60,
-        released=[("court-1", start.isoformat()), ("court-2", start.isoformat())],
+        released=[
+            ("court-1", start, start + timedelta(hours=1)),
+            ("court-2", start, start + timedelta(hours=1)),
+        ],
+    )
+
+    assert caught is None
+
+
+def test_a_longer_booking_given_up_keeps_every_hour_of_it() -> None:
+    """Two hours released are two hours not to take back, not just the first."""
+    start = datetime(2026, 10, 1, 19, tzinfo=KYIV)
+
+    caught = evaluate(
+        [every_day(not_before=time(20, 0), not_after=time(21, 0), space_ids=("court-1",))],
+        {"acc-a": []},
+        [],
+        60,
+        ["court-1"],
+        NOW,
+        datetime(2026, 10, 2, tzinfo=KYIV),
+        60,
+        released=[("court-1", start, start + timedelta(hours=2))],
     )
 
     assert caught is None
 
 
 def test_giving_up_one_slot_does_not_block_the_next_day() -> None:
-    released = [("court-1", datetime(2026, 10, 1, 20, tzinfo=KYIV).isoformat())]
+    start = datetime(2026, 10, 1, 20, tzinfo=KYIV)
+    released = [("court-1", start, start + timedelta(hours=1))]
 
     caught = evaluate(
         [every_day(not_before=time(20, 0), not_after=time(21, 0))],

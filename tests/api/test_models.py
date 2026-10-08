@@ -17,8 +17,10 @@ from custom_components.skedda_scheduler.api.errors import ApiContractError
 from custom_components.skedda_scheduler.api.models import (
     SkeddaBooking,
     SkeddaCredentials,
+    SkeddaHours,
     SkeddaSession,
     SkeddaSpace,
+    SkeddaVenue,
 )
 
 FIXTURES = Path("tests/fixtures/skedda")
@@ -107,3 +109,39 @@ def test_credentials_repr_hides_the_password() -> None:
     assert "hunter2" not in rendered
     assert "myclub" in rendered
     assert "user@example.com" in rendered
+
+
+def test_the_venues_hours_are_read_from_hours_of_availability() -> None:
+    """Captured live 2026-10-08: 08:00 to 22:00, every day, every court."""
+    venue = SkeddaVenue.from_payload(_load("webs.json")["venue"][0])
+
+    assert venue.hours == (
+        SkeddaHours(weekdays=frozenset(range(7)), start_minute=480, end_minute=1320),
+    )
+
+
+def test_hours_for_some_days_and_some_courts_keep_both() -> None:
+    """Bit 0 is Sunday, .NET's numbering; 0b0000011 is Sunday and Monday."""
+    venue = SkeddaVenue.from_payload(
+        {
+            "timeZoneId": "Europe/Kyiv",
+            "hoursOfAvailability": {
+                "rules": [
+                    {"spaceIds": [2000001], "start": 600, "end": 1200, "daysBitmask": 3},
+                    {"spaceIds": None, "start": "noon", "end": 1200, "daysBitmask": 127},
+                    {"start": 480, "end": 1320},
+                ]
+            },
+        }
+    )
+
+    assert venue.hours == (
+        SkeddaHours(
+            weekdays=frozenset({6, 0}), start_minute=600, end_minute=1200, space_ids=("2000001",)
+        ),
+        SkeddaHours(weekdays=frozenset(range(7)), start_minute=480, end_minute=1320),
+    )
+
+
+def test_a_venue_that_publishes_no_hours_has_none() -> None:
+    assert SkeddaVenue.from_payload({"timeZoneId": "Europe/Kyiv"}).hours == ()

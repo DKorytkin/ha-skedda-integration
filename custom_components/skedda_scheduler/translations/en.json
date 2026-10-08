@@ -171,7 +171,7 @@
             "space_ids": "Courts",
             "duration_minutes": "Duration",
             "mode": "What counts as a catch",
-            "max_block_minutes": "Most hours in a row",
+            "max_block_minutes": "Most minutes in one day",
             "allow_other_court": "A neighbour may be on another court",
             "min_lead_minutes": "Ignore slots starting sooner than",
             "speed": "How often to look",
@@ -185,11 +185,11 @@
             "not_after": "A slot must end at or before this time.",
             "space_ids": "Leave empty for any court. The order is the order they are tried in.",
             "mode": "Next to ours grows a block; the free-slot rule only applies on a day we hold nothing.",
-            "max_block_minutes": "A catch is refused if it would make a longer run than this.",
+            "max_block_minutes": "A catch is refused if it would leave us holding more than this on that day, counting every booking we already have there. 120 is two slots.",
             "min_lead_minutes": "A court starting in an hour cannot be filled with people.",
             "speed": "Looking more often costs the venue more requests. Watching stops entirely when no account has quota left.",
             "book": "Turn off to be told about the slot and take it yourself.",
-            "season_end": "Empty means no end."
+            "season_end": "The last day this rule watches. Empty means every week, with no end. For a single day, pick that day here."
           }
         },
         "reconfigure": {
@@ -203,7 +203,7 @@
             "space_ids": "Courts",
             "duration_minutes": "Duration",
             "mode": "What counts as a catch",
-            "max_block_minutes": "Most hours in a row",
+            "max_block_minutes": "Most minutes in one day",
             "allow_other_court": "A neighbour may be on another court",
             "min_lead_minutes": "Ignore slots starting sooner than",
             "speed": "How often to look",
@@ -217,11 +217,11 @@
             "not_after": "A slot must end at or before this time.",
             "space_ids": "Leave empty for any court. The order is the order they are tried in.",
             "mode": "Next to ours grows a block; the free-slot rule only applies on a day we hold nothing.",
-            "max_block_minutes": "A catch is refused if it would make a longer run than this.",
+            "max_block_minutes": "A catch is refused if it would leave us holding more than this on that day, counting every booking we already have there. 120 is two slots.",
             "min_lead_minutes": "A court starting in an hour cannot be filled with people.",
             "speed": "Looking more often costs the venue more requests. Watching stops entirely when no account has quota left.",
             "book": "Turn off to be told about the slot and take it yourself.",
-            "season_end": "Empty means no end."
+            "season_end": "The last day this rule watches. Empty means every week, with no end. For a single day, pick that day here."
           }
         }
       },

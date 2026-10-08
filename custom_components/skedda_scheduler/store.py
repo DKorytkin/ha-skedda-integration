@@ -26,6 +26,11 @@ MAX_HISTORY_PER_JOB = 50
 #: we decided we did not want.
 RELEASED_KEY = "__released__"
 STATUS_RELEASED = "released"
+#: What the account held at the last scan, so a booking cancelled while Home
+#: Assistant was down is still recognised as one we gave up.
+HELD_KEY = "__held__"
+#: Keys that are not job ids, and must survive a sweep of deleted jobs.
+_RESERVED_KEYS = frozenset({RELEASED_KEY, HELD_KEY})
 
 
 def _as_datetime(value: Any) -> datetime | None:
@@ -81,11 +86,33 @@ class AttemptStore:
         self._prune_released()
         await self._store.async_save(self._data)
 
-    def released_slots(self) -> set[tuple[str, str]]:
-        """Slots we let go, as (space id, start) - the watch skips these."""
+    def released_intervals(self) -> set[tuple[str, datetime, datetime]]:
+        """Slots we let go, as (space id, start, end) - the watch skips these."""
+        found: set[tuple[str, datetime, datetime]] = set()
+        for item in self._data.get(RELEASED_KEY, []):
+            start, end = _as_datetime(item.get("start")), _as_datetime(item.get("end"))
+            if start is not None and end is not None:
+                found.add((str(item["space_id"]), start, end))
+        return found
+
+    def held(self) -> set[tuple[str, str, str]] | None:
+        """(space id, start, end) of what we held at the last scan; None if never."""
+        if HELD_KEY not in self._data:
+            return None
         return {
-            (str(item["space_id"]), str(item["start"])) for item in self._data.get(RELEASED_KEY, [])
+            (str(item["space_id"]), str(item["start"]), str(item["end"]))
+            for item in self._data[HELD_KEY]
         }
+
+    async def async_note_held(self, held: set[tuple[str, str, str]]) -> None:
+        """Remember what we hold now. Written only when it changed."""
+        if self.held() == held:
+            return
+        self._data[HELD_KEY] = [
+            {"space_id": space_id, "start": start, "end": end}
+            for space_id, start, end in sorted(held)
+        ]
+        await self._store.async_save(self._data)
 
     def _prune_released(self) -> None:
         """Forget a released slot once its time has passed.
@@ -110,7 +137,7 @@ class AttemptStore:
         Deleting a job gives back a fresh id if it is ever re-added, so its
         old history would otherwise sit in the file forever.
         """
-        stale = set(self._data) - job_ids - {RELEASED_KEY}
+        stale = set(self._data) - job_ids - _RESERVED_KEYS
         if not stale:
             return
         for job_id in stale:
