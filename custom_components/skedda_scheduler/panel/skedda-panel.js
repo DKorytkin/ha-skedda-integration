@@ -63,6 +63,7 @@ const STRINGS = {
     lastCatch: "last catch",
     every: "every",
     minutes: "min",
+    until: "until",
   },
   uk: {
     locale: "uk",
@@ -108,6 +109,7 @@ const STRINGS = {
     lastCatch: "остання здобич",
     every: "кожні",
     minutes: "хв",
+    until: "до",
   },
 };
 
@@ -404,12 +406,19 @@ function watchRow(t, watch) {
   // A shut gate is the ordinary resting state at a venue with a weekly
   // allowance, so it reads as a state rather than as a fault.
   const state = !watch.enabled ? t.ruleOff : watch.gate_open ? t.gateOpen : t.gateShut;
+  // Without this a rule meant for one day and one meant for every week look
+  // the same, and the difference only shows when it books the wrong week.
+  const until = watch.until
+    ? ` <span class="muted">${esc(t.until)} ${esc(
+        new Date(`${watch.until}T00:00:00`).toLocaleDateString(t.locale),
+      )}</span>`
+    : "";
   const caught = watch.last_catch
     ? `<span class="muted">${esc(t.lastCatch)} ${when(watch.last_catch)}</span>`
     : "";
   return `<tr>
     <td>${esc(watch.name)}${watch.book ? "" : ` <span class="muted">(${esc(t.notifyOnly)})</span>`}</td>
-    <td>${esc(days)} <span class="muted">${esc(watch.hours)}</span></td>
+    <td>${esc(days)} <span class="muted">${esc(watch.hours)}</span>${until}</td>
     <td>${esc(state)}${rate}</td>
     <td>${caught}</td>
   </tr>`;

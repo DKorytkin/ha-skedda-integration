@@ -76,6 +76,24 @@
             "mode": 1
           }
         ]
+      },
+      "hoursOfAvailability": {
+        "displayHours": {
+          "start": 480,
+          "end": 1320
+        },
+        "rules": [
+          {
+            "spaceIds": null,
+            "start": 480,
+            "end": 1320,
+            "daysBitmask": 127
+          }
+        ],
+        "allDayBookingRules": {
+          "defaultCheckedSpaceIds": [],
+          "defaultUncheckedSpaceIds": []
+        }
       }
     }
   ],

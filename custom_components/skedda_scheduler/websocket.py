@@ -21,6 +21,7 @@ from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.util import dt as dt_util
 
+from . import google_calendar
 from .api.errors import SkeddaError
 from .const import (
     CONF_ENABLED,
@@ -149,6 +150,7 @@ def _watches(entry: ConfigEntry) -> list[dict[str, Any]]:
             "enabled": rule.enabled,
             "days": sorted(rule.weekdays),
             "hours": f"{rule.not_before:%H:%M}-{rule.not_after:%H:%M}",
+            "until": rule.active_until.isoformat() if rule.active_until else None,
             "mode": rule.mode.value,
             "book": rule.book,
             "gate_open": runner.gate_open,
@@ -223,9 +225,9 @@ async def websocket_cancel_booking(
     if held is not None:
         # Releasing a court on purpose must not read, to a watch rule, as a
         # court somebody else gave up.
-        await entry.runtime_data.store.async_note_released(
-            held.space_ids[0] if held.space_ids else "", held.start, held.end
-        )
+        space_id = held.space_ids[0] if held.space_ids else ""
+        await entry.runtime_data.store.async_note_released(space_id, held.start, held.end)
+        await google_calendar.async_release_event(hass, space_id, held.start, held.end, held.id)
     # The panel reads the diary, so it has to change before the reply lands.
     await entry.runtime_data.coordinator.async_refresh()
     connection.send_result(msg["id"], {"cancelled": msg["booking_id"]})

@@ -418,7 +418,26 @@ async def test_the_overview_lists_watch_rules(
     watching = result["watches"][0]
     assert watching["enabled"] is True
     assert watching["hours"] == "19:00-21:00"
+    assert watching["until"] is None
     assert watching["entry_id"] == "entry-watch"
+
+
+async def test_the_overview_says_until_when_a_rule_watches(
+    hass: HomeAssistant,
+    hass_ws_client: Any,
+    mock_entry: MockConfigEntry,
+    mock_provider: AsyncMock,
+) -> None:
+    """A rule for one Tuesday and one for every Tuesday must not look alike."""
+    from tests.helpers import watch_entry_with_rule
+
+    await setup_with_job(hass, mock_entry)
+    await watch_entry_with_rule(hass, season_end="2026-10-13")
+    client = await hass_ws_client(hass)
+
+    result = await overview(client)
+
+    assert result["watches"][0]["until"] == "2026-10-13"
 
 
 async def test_the_overview_says_when_a_watch_has_nothing_left_to_spend(
@@ -472,7 +491,49 @@ async def test_cancelling_from_the_panel_marks_the_slot_as_given_up(
     )
     assert (await client.receive_json())["success"]
 
-    assert ("2000001", start.isoformat()) in mock_entry.runtime_data.store.released_slots()
+    assert ("2000001", start, start + timedelta(hours=1)) in (
+        mock_entry.runtime_data.store.released_intervals()
+    )
+
+
+async def test_cancelling_from_the_panel_removes_the_calendar_event(
+    hass: HomeAssistant,
+    hass_ws_client: Any,
+    mock_entry: MockConfigEntry,
+    mock_provider: AsyncMock,
+) -> None:
+    """A court released but still in everybody's diary brings them to it anyway."""
+    from datetime import timedelta
+    from unittest.mock import patch
+
+    from homeassistant.util import dt as dt_util
+
+    start = (dt_util.utcnow() + timedelta(days=3)).replace(microsecond=0)
+    booking = Booking(
+        id="b-cancel-me",
+        space_ids=("2000001",),
+        start=start,
+        end=start + timedelta(hours=1),
+        title="",
+        is_mine=True,
+    )
+    mock_provider.list_bookings.return_value = [booking]
+    await setup_with_job(hass, mock_entry)
+    client = await hass_ws_client(hass)
+
+    with patch("custom_components.skedda_scheduler.google_calendar.async_release_event") as release:
+        await client.send_json_auto_id(
+            {
+                "type": "skedda_scheduler/cancel_booking",
+                "entry_id": mock_entry.entry_id,
+                "booking_id": "b-cancel-me",
+            }
+        )
+        assert (await client.receive_json())["success"]
+
+    release.assert_awaited_once_with(
+        hass, "2000001", start, start + timedelta(hours=1), "b-cancel-me"
+    )
 
 
 async def test_an_open_panel_asks_for_a_poll_once_the_snapshot_is_old(

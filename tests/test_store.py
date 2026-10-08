@@ -136,3 +136,48 @@ async def test_removing_the_account_takes_its_history_with_it(
     await store.async_remove()
 
     assert hass_storage.get(storage_key(mock_entry), {}).get("data") in (None, {})
+
+
+async def test_what_we_held_is_unknown_until_first_noted(
+    hass: HomeAssistant, mock_entry: MockConfigEntry
+) -> None:
+    store = await loaded_store(hass, mock_entry)
+
+    assert store.held() is None
+
+
+async def test_what_we_held_survives_a_restart(
+    hass: HomeAssistant, mock_entry: MockConfigEntry
+) -> None:
+    """A booking cancelled while Home Assistant was down is compared to this."""
+    slot = ("2000001", WHEN.isoformat(), (WHEN + timedelta(hours=1)).isoformat())
+    store = await loaded_store(hass, mock_entry)
+    await store.async_note_held({slot})
+    await store.async_note_held({slot})
+
+    again = await loaded_store(hass, mock_entry)
+
+    assert again.held() == {slot}
+
+
+async def test_sweeping_deleted_jobs_keeps_what_we_held(
+    hass: HomeAssistant, mock_entry: MockConfigEntry
+) -> None:
+    store = await loaded_store(hass, mock_entry)
+    await store.async_note_held(set())
+    await store.async_record(outcome("gone"))
+
+    await store.async_forget(set())
+
+    assert store.held() == set()
+    assert store.history_for("gone") == []
+
+
+async def test_a_released_slot_is_read_back_as_an_interval(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, freezer: Any
+) -> None:
+    freezer.move_to(WHEN - timedelta(days=1))
+    store = await loaded_store(hass, mock_entry)
+    await store.async_note_released("2000001", WHEN, WHEN + timedelta(hours=1))
+
+    assert store.released_intervals() == {("2000001", WHEN, WHEN + timedelta(hours=1))}

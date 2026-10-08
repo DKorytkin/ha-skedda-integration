@@ -17,6 +17,7 @@ from custom_components.skedda_scheduler.core.provider import (
     Booking,
     BookingRequest,
     DateRange,
+    OpenHours,
     Space,
 )
 from custom_components.skedda_scheduler.skedda_provider import SkeddaProvider
@@ -112,6 +113,9 @@ async def test_venue_settings_are_exposed_for_the_config_flow(
     venue = await provider.venue_settings()
     assert venue.timezone == "Europe/Kyiv"
     assert venue.weekly_quota_minutes == 60
+    assert venue.hours == (
+        OpenHours(weekdays=frozenset(range(7)), start_minute=480, end_minute=1320),
+    )
 
 
 async def test_the_underlying_client_is_reachable_for_diagnostics(
