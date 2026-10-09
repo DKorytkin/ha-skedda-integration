@@ -317,7 +317,11 @@ async def test_identity_rejects_a_payload_without_a_web_block(
 async def test_a_move_sends_back_the_whole_booking_with_new_times(
     http: aiohttp.ClientSession, skedda: FakeSkedda
 ) -> None:
-    """Confirmed 2026-09-15: an update replaces the document; a field left out is cleared."""
+    """Confirmed 2026-09-15: an update replaces the document; a field left out is cleared.
+
+    TODO: the fake server stands in for a live check that has not been done
+    yet - see SkeddaClient.move_booking.
+    """
     client = await authenticated(http, skedda)
     listed = load("bookings_list.json")
     skedda.stub("GET", endpoints.BOOKINGS_LIST.path, json=listed)

@@ -215,6 +215,12 @@ class SkeddaClient:
 
         One request rather than cancel-then-book: between those two, the hour
         given up and the hour wanted could both go to somebody else.
+
+        TODO: verify against the live venue - move one real future booking an
+        hour and back, then record the request and response in
+        .claude/specs/skedda-api-contract.md. The PUT shape comes only from the
+        web app's traffic (2026-09-15); until then it is tested against the
+        fake server alone.
         """
         day = current_start.replace(hour=0, minute=0, second=0, microsecond=0)
         listed = await self._raw_bookings(day, day + timedelta(days=1))
