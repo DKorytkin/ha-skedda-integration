@@ -810,8 +810,8 @@ async def test_the_watch_never_asks_for_an_hour_the_venue_is_shut(
     mock_provider.book.assert_not_awaited()
 
 
-def test_a_rule_never_asks_sooner_than_the_venue_allows() -> None:
-    """Seen 2026-10-09: an hour's lead at a venue wanting three."""
+def test_a_rule_asks_only_while_the_venue_still_takes_the_slot() -> None:
+    """Seen 2026-10-09: 18:00 asked for at 15:42 at a venue wanting three hours."""
     from dataclasses import replace
 
     from custom_components.skedda_scheduler.core.watch import WatchRule
@@ -827,11 +827,10 @@ def test_a_rule_never_asks_sooner_than_the_venue_allows() -> None:
         space_ids=(),
         duration_minutes=60,
         venue_timezone="Europe/Kyiv",
-        min_lead_minutes=60,
     )
 
     assert _within_venue(rule, replace(VENUE_RULES, min_minutes_ahead=180)).min_lead_minutes == 180
-    assert _within_venue(rule, VENUE_RULES) is rule
+    assert _within_venue(rule, VENUE_RULES).min_lead_minutes == 0
 
 
 async def test_a_slot_the_venue_refused_outright_gives_way_to_the_next(

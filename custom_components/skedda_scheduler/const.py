@@ -56,7 +56,6 @@ CONF_SPACE_IDS: Final = "space_ids"
 CONF_MODE: Final = "mode"
 CONF_MAX_BLOCK_MINUTES: Final = "max_block_minutes"
 CONF_ALLOW_OTHER_COURT: Final = "allow_other_court"
-CONF_MIN_LEAD_MINUTES: Final = "min_lead_minutes"
 CONF_SPEED: Final = "speed"
 CONF_BOOK: Final = "book"
 
@@ -91,8 +90,6 @@ SERVICE_SLOT_FREED: Final = "slot_freed"
 
 #: The most a watch rule may leave us holding on one day: two slots.
 DEFAULT_MAX_BLOCK_MINUTES: Final = 120
-#: A court starting sooner than this cannot be filled with people.
-DEFAULT_MIN_LEAD_MINUTES: Final = 180
 
 DEFAULT_PREWARM_SECONDS: Final = 120
 DEFAULT_LEAD_MS: Final = 150

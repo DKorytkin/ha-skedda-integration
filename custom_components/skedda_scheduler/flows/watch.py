@@ -24,7 +24,6 @@ from ..const import (
     CONF_DURATION,
     CONF_ENTRY_KIND,
     CONF_MAX_BLOCK_MINUTES,
-    CONF_MIN_LEAD_MINUTES,
     CONF_MODE,
     CONF_NAME,
     CONF_NOT_AFTER,
@@ -37,7 +36,6 @@ from ..const import (
     CONF_WEEKDAYS,
     DEFAULT_DURATION_MINUTES,
     DEFAULT_MAX_BLOCK_MINUTES,
-    DEFAULT_MIN_LEAD_MINUTES,
     DOMAIN,
     ENTRY_KIND_WATCH,
 )
@@ -129,18 +127,6 @@ def rule_schema(spaces: list[Space], defaults: dict[str, Any]) -> vol.Schema:
             vol.Optional(
                 CONF_ALLOW_OTHER_COURT, default=defaults.get(CONF_ALLOW_OTHER_COURT, False)
             ): selector.BooleanSelector(),
-            vol.Required(
-                CONF_MIN_LEAD_MINUTES,
-                default=defaults.get(CONF_MIN_LEAD_MINUTES, DEFAULT_MIN_LEAD_MINUTES),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0,
-                    max=1440,
-                    step=30,
-                    unit_of_measurement="min",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
             vol.Required(
                 CONF_SPEED, default=defaults.get(CONF_SPEED, WatchSpeed.STEPPED)
             ): selector.SelectSelector(selector.SelectSelectorConfig(options=SPEED_OPTIONS)),

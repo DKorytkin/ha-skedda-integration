@@ -139,7 +139,7 @@ def test_candidates_stop_at_the_horizon() -> None:
 
 
 def test_a_slot_starting_too_soon_is_not_a_candidate() -> None:
-    """Three hours' notice: a court nobody can be gathered for is no prize."""
+    """Three hours' notice: the venue would refuse anything sooner."""
     afternoon = datetime(2026, 10, 1, 16, 30, tzinfo=KYIV)
 
     found = candidates(rule(min_lead_minutes=180), ["court-1"], afternoon, HORIZON, 60)

@@ -74,13 +74,11 @@ _WORTH_ASKING_AGAIN = (
 
 
 def _within_venue(rule: WatchRule, venue: VenueRules) -> WatchRule:
-    """The rule, never asking sooner before a slot than the venue allows.
+    """The rule, asking for a slot only while the venue still takes it.
 
-    Seen 2026-10-09: a rule with an hour's lead at a venue wanting three asked
-    for a slot it could never have, on every scan.
+    Seen 2026-10-09: a slot three hours off at a venue wanting three hours'
+    notice was asked for on every scan, and refused every time.
     """
-    if venue.min_minutes_ahead <= rule.min_lead_minutes:
-        return rule
     return replace(rule, min_lead_minutes=venue.min_minutes_ahead)
 
 
