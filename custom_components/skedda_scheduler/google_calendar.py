@@ -23,6 +23,8 @@ from .const import (
     DOMAIN,
     ENTRY_KIND_CALENDAR,
 )
+from .core.result import BookingOutcome
+from .core.subject import BookingSubject
 from .entry_kinds import entry_kind
 from .sinks.google_calendar import GoogleCalendarSink
 
@@ -102,3 +104,12 @@ async def async_release_event(
     sink = await async_build_sink(hass)
     if sink is not None:
         await sink.async_release(space_id, start, end, booking_id)
+
+
+async def async_add_event(
+    hass: HomeAssistant, outcome: BookingOutcome, subject: BookingSubject
+) -> None:
+    """Write a booking made outside any job or rule, when a calendar is linked."""
+    sink = await async_build_sink(hass)
+    if sink is not None:
+        await sink.async_handle(outcome, subject)

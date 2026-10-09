@@ -64,6 +64,14 @@ const STRINGS = {
     every: "every",
     minutes: "min",
     until: "until",
+    free: "Free",
+    take: "Take",
+    moveHere: "Move here",
+    confirmMove: "Move this booking to",
+    working: "…",
+    runNow: "Run now",
+    caught: "caught",
+    nothingFree: "nothing free",
   },
   uk: {
     locale: "uk",
@@ -110,6 +118,14 @@ const STRINGS = {
     every: "кожні",
     minutes: "хв",
     until: "до",
+    free: "Вільно",
+    take: "Взяти",
+    moveHere: "Перенести сюди",
+    confirmMove: "Перенести це бронювання на",
+    working: "…",
+    runNow: "Запустити зараз",
+    caught: "взяла",
+    nothingFree: "нічого вільного",
   },
 };
 
@@ -165,6 +181,60 @@ class SkeddaPanel extends HTMLElement {
       this._error = err.message || String(err);
     }
     await this._refresh();
+  }
+
+  async _act(button, message) {
+    // Every action changes the diary, so the reply is followed by a fresh look.
+    button.disabled = true;
+    button.textContent = this._t.working;
+    let result = null;
+    try {
+      result = await this._hass.callWS(message);
+      this._error = null;
+    } catch (err) {
+      this._error = err.message || String(err);
+    }
+    await this._refresh();
+    return result;
+  }
+
+  _take(button) {
+    const { entry, space, start, end } = button.dataset;
+    return this._act(button, {
+      type: "skedda_scheduler/take_slot",
+      entry_id: entry,
+      space_id: space,
+      start,
+      end,
+    });
+  }
+
+  _move(button) {
+    const { entry, booking, start, end } = button.dataset;
+    if (!confirm(`${this._t.confirmMove} ${new Date(start).toLocaleString(this._t.locale)}?`)) {
+      return null;
+    }
+    return this._act(button, {
+      type: "skedda_scheduler/move_booking",
+      entry_id: entry,
+      booking_id: booking,
+      start,
+      end,
+    });
+  }
+
+  async _run(button) {
+    const { entry, rule } = button.dataset;
+    const result = await this._act(button, {
+      type: "skedda_scheduler/run_watch_rule",
+      entry_id: entry,
+      rule_id: rule,
+    });
+    if (result) {
+      // Shown in the rule's row until the next press: what the press found.
+      this._runs = { ...(this._runs || {}), [rule]: result.caught };
+      this._paint();
+    }
   }
 
   _render() {
@@ -246,12 +316,27 @@ class SkeddaPanel extends HTMLElement {
           background: none; color: var(--primary-color); padding: 7px 8px;
         }
         button[disabled] { opacity: .6; cursor: default; }
+        /* A slot nobody holds yet: there, but not ours - faded, with only its
+           button at full strength. */
+        tr.free td { color: var(--secondary-text-color); border-top-style: dashed; }
+        tr.free td:not(.actions) { opacity: .55; }
+        tr.free:hover td { background: none; }
+        button.small { padding: 4px 12px; font-size: 12px; }
+        button.ghost {
+          background: none; color: var(--primary-color);
+          border: 1px solid var(--primary-color); padding: 3px 11px;
+        }
       </style>
       <div class="wrap"><div id="body"></div></div>
     `;
     this.shadowRoot.addEventListener("click", (event) => {
-      const button = event.target.closest("button[data-booking]");
-      if (button) this._cancel(button.dataset.entry, button.dataset.booking, button);
+      const button = event.target.closest("button[data-action]");
+      if (!button) return;
+      const action = button.dataset.action;
+      if (action === "cancel") this._cancel(button.dataset.entry, button.dataset.booking, button);
+      if (action === "take") this._take(button);
+      if (action === "move") this._move(button);
+      if (action === "run") this._run(button);
     });
   }
 
@@ -266,7 +351,7 @@ class SkeddaPanel extends HTMLElement {
       body.innerHTML = `<div class="card">${message}</div>`;
       return;
     }
-    const { accounts, bookings, jobs, watches } = this._data;
+    const { accounts, bookings, jobs, watches, offers } = this._data;
     body.innerHTML = `
       ${header(t, accounts)}
       ${this._error ? `<div class="card"><div class="error">${esc(this._error)}</div></div>` : ""}
@@ -274,7 +359,7 @@ class SkeddaPanel extends HTMLElement {
         t.existingBookings,
         "",
         null,
-        bookingRows(t, bookings),
+        bookingRows(t, bookings, offers || []),
         t.noBookings,
       )}
       ${card(
@@ -287,8 +372,8 @@ class SkeddaPanel extends HTMLElement {
       ${card(
         t.watching,
         "",
-        [t.rule, t.daysHours, t.watchState, ""],
-        (watches || []).map((watch) => watchRow(t, watch)),
+        [t.rule, t.daysHours, t.watchState, "", ""],
+        (watches || []).map((watch) => watchRow(t, watch, this._runs || {})),
         t.noWatches,
       )}
     `;
@@ -333,7 +418,7 @@ function card(title, action, headings, rows, empty) {
   return `<div class="card"><h2>${esc(title)}${action}</h2>${inner}</div>`;
 }
 
-function bookingRows(t, bookings) {
+function bookingRows(t, bookings, offers) {
   // At a venue with one court the column is the same word on every row; it
   // earns its place only when it tells two bookings apart.
   const showCourt = new Set(bookings.map((booking) => booking.court)).size > 1;
@@ -346,9 +431,35 @@ function bookingRows(t, bookings) {
       day = start.toDateString();
       rows.push(dayRow(t, start, columns));
     }
+    const nearby = offers.filter((offer) => offer.booking_id === booking.booking_id);
+    const before = nearby.filter((offer) => new Date(offer.start) < new Date(booking.start));
+    const after = nearby.filter((offer) => new Date(offer.start) >= new Date(booking.start));
+    // Each free hour sits where it falls: the one before above, the one after
+    // below, so the day reads as the court's own timeline.
+    rows.push(...before.map((offer) => freeRow(t, offer, showCourt)));
     rows.push(bookingRow(t, booking, showCourt));
+    rows.push(...after.map((offer) => freeRow(t, offer, showCourt)));
   }
   return rows;
+}
+
+function freeRow(t, offer, showCourt) {
+  // Take is the quick one: a free hour goes to whoever asks first. Moving
+  // gives up the hour we hold, so it asks first and looks quieter.
+  const move = offer.kind === "move";
+  const payer = move ? "" : ` <span>· ${esc(offer.account)}</span>`;
+  return `<tr class="free">
+    <td class="time">${clock(t, offer.start)}</td>
+    ${showCourt ? "<td></td>" : ""}
+    <td>${esc(t.free)}${payer}</td>
+    <td class="actions">
+      <button class="small ${move ? "ghost" : ""}" data-action="${move ? "move" : "take"}"
+              data-entry="${esc(offer.entry_id)}" data-space="${esc(offer.space_id)}"
+              data-booking="${esc(offer.booking_id)}"
+              data-start="${esc(offer.start)}" data-end="${esc(offer.end)}"
+              title="${esc(offer.account)}">${esc(move ? t.moveHere : t.take)}</button>
+    </td>
+  </tr>`;
 }
 
 function dayRow(t, start, columns) {
@@ -372,7 +483,7 @@ function bookingRow(t, booking, showCourt) {
     ${showCourt ? `<td>${esc(booking.court)}</td>` : ""}
     <td>${esc(booking.account)}</td>
     <td class="actions">
-      <button class="link icon" data-entry="${esc(booking.entry_id)}"
+      <button class="link icon" data-action="cancel" data-entry="${esc(booking.entry_id)}"
               data-booking="${esc(booking.booking_id)}"
               title="${esc(t.cancel)}" aria-label="${esc(t.cancel)}">✕</button>
     </td>
@@ -397,7 +508,7 @@ function jobRow(t, job) {
   </tr>`;
 }
 
-function watchRow(t, watch) {
+function watchRow(t, watch, runs) {
   const days = watch.days.map((day) => DAY_NAMES[day]).join(" ");
   const rate =
     watch.gate_open && watch.poll_interval_minutes
@@ -416,11 +527,19 @@ function watchRow(t, watch) {
   const caught = watch.last_catch
     ? `<span class="muted">${esc(t.lastCatch)} ${when(watch.last_catch)}</span>`
     : "";
+  const ran = watch.rule_id in runs
+    ? `<span class="muted">${runs[watch.rule_id] ? `${esc(t.caught)} ${when(runs[watch.rule_id])}` : esc(t.nothingFree)}</span> `
+    : "";
+  const run = watch.enabled
+    ? `<button class="small" data-action="run" data-entry="${esc(watch.entry_id)}"
+               data-rule="${esc(watch.rule_id)}">▶ ${esc(t.runNow)}</button>`
+    : "";
   return `<tr>
     <td>${esc(watch.name)}${watch.book ? "" : ` <span class="muted">(${esc(t.notifyOnly)})</span>`}</td>
     <td>${esc(days)} <span class="muted">${esc(watch.hours)}</span>${until}</td>
     <td>${esc(state)}${rate}</td>
     <td>${caught}</td>
+    <td class="actions">${ran}${run}</td>
   </tr>`;
 }
 

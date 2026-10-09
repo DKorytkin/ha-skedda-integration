@@ -7,6 +7,8 @@ appears here belongs in core/ instead.
 
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from .api.client import SkeddaClient
@@ -80,6 +82,11 @@ class SkeddaProvider:
 
     async def cancel(self, booking_id: str) -> None:
         await self._client.cancel_booking(booking_id)
+
+    async def move(self, booking: Booking, start: datetime, end: datetime) -> Booking:
+        venue = await self._client.venue_settings()
+        moved = await self._client.move_booking(booking.id, booking.start, start, end)
+        return replace(self._to_booking(moved, venue.timezone), is_mine=booking.is_mine)
 
     @staticmethod
     def _to_booking(item: SkeddaBooking, timezone: str, venueuser_id: str | None = None) -> Booking:

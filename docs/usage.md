@@ -16,9 +16,23 @@ sign in, red when it cannot - and three tables below:
 - **Booking jobs** — each job by name, what it will book next, and when its
   window opens.
 - **Watching for freed slots** — each watch rule, its days and hours, whether it
-  is looking and how often, and its last catch.
+  is looking and how often, and its last catch. **▶ Run now** reads the venue
+  at once and runs that rule alone, for when you can see a court it would take.
 
-It is a view, not an editor. Adding and editing open Home Assistant's own
+On a day where your accounts hold exactly one booking, the free hour before and
+after it on the same court appears as a faded **Free** row above or below it -
+only hours the venue is open and still takes bookings for:
+
+- **Take** books it straight away with an account that still has an hour that
+  week (named beside the buttons). It does not ask: a free court goes to
+  whoever is quickest.
+- **Move here** appears when no account has an hour left. It moves your booking
+  onto that hour in one request, after asking. The hour left behind is never
+  caught back by a watch rule, and the calendar event moves with it.
+
+A day with two bookings already has its game and shows nothing.
+
+Beyond those, it is a view, not an editor. Adding and editing open Home Assistant's own
 dialogs, so there is one implementation of the forms rather than two.
 
 ## Calendars

@@ -121,6 +121,23 @@ def list_bookings_params(start: datetime, end: datetime) -> dict[str, str]:
     return {"start": _local_iso(start), "end": _local_iso(end)}
 
 
+def moved_booking_payload(raw: dict[str, Any], start: datetime, end: datetime) -> dict[str, Any]:
+    """Build the update body: the booking as listed, with new times.
+
+    Confirmed 2026-09-15: an update replaces the whole document, so it is
+    built from what /bookingslists returned rather than from scratch - a field
+    left out is a field cleared.
+    """
+    booking = dict(raw)
+    booking["start"] = _local_iso(start)
+    booking["end"] = _local_iso(end)
+    if "endOfLastOccurrence" in booking:
+        # A one-off booking's last occurrence is itself.
+        booking["endOfLastOccurrence"] = _local_iso(end)
+    booking.setdefault("arbitraryerrors", None)
+    return {"booking": booking}
+
+
 def login_payload(email: str, password: str) -> dict[str, Any]:
     """Build the sign-in body exactly as Skedda's own client sends it.
 

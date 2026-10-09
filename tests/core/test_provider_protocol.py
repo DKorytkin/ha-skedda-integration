@@ -62,6 +62,11 @@ class FakeVenueSystem:
     async def cancel(self, booking_id: str) -> None:
         return None
 
+    async def move(self, booking: Booking, start: datetime, end: datetime) -> Booking:
+        return Booking(
+            id=booking.id, space_ids=booking.space_ids, start=start, end=end, title=booking.title
+        )
+
 
 def test_an_unrelated_implementation_also_satisfies_the_protocol() -> None:
     assert isinstance(FakeVenueSystem(), BookingProvider)

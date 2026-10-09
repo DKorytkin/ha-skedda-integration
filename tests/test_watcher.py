@@ -14,6 +14,7 @@ from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.skedda_scheduler.core.provider import Booking
+from custom_components.skedda_scheduler.watcher import aimed_weeks
 from tests.helpers import setup_account, setup_with_job, watch_entry_with_rule
 
 KYIV = ZoneInfo("Europe/Kyiv")
@@ -602,13 +603,9 @@ async def test_a_watch_whose_account_has_no_scheduler_yet_reserves_nothing(
 ) -> None:
     """Setup order is not something the watch may depend on."""
     await setup_account(hass, mock_entry)
-    watch = await watch_entry_with_rule(hass)
     mock_entry.runtime_data.scheduler = None
 
-    assert (
-        watch.runtime_data.watcher._aimed_weeks(mock_entry, dt_util.utcnow(), dt_util.utcnow())
-        == set()
-    )
+    assert aimed_weeks(mock_entry, dt_util.utcnow(), dt_util.utcnow()) == set()
 
 
 async def test_a_booking_that_disappears_is_remembered_as_given_up(
@@ -695,7 +692,6 @@ async def test_a_week_whose_window_opened_without_the_job_is_not_reserved(
     from custom_components.skedda_scheduler.core.watch import week_of
 
     job_id = await setup_with_job(hass, mock_entry)
-    watch = await watch_entry_with_rule(hass)
     runner = mock_entry.runtime_data.scheduler.runner_for(job_id)
     now = dt_util.utcnow()
     nearest = runner.job.next_slot(now)[0]
@@ -704,7 +700,7 @@ async def test_a_week_whose_window_opened_without_the_job_is_not_reserved(
     runner.attempted_slot = None
     runner.armed_slot = later
 
-    weeks = watch.runtime_data.watcher._aimed_weeks(mock_entry, now, now + timedelta(days=14))
+    weeks = aimed_weeks(mock_entry, now, now + timedelta(days=14))
 
     assert week_of(nearest) not in weeks
     assert week_of(later) in weeks

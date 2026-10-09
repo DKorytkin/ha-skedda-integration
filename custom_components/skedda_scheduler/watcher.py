@@ -73,6 +73,40 @@ _WORTH_ASKING_AGAIN = (
 )
 
 
+def aimed_weeks(entry: ConfigEntry, now: datetime, horizon_end: datetime) -> set[tuple[int, int]]:
+    """Weeks this account's booking jobs plan to use.
+
+    Every occurrence inside the horizon, not merely the armed one: a
+    weekly job arms one week at a time, and a watch that spent the weeks
+    it had not reached yet would leave it failing on quota for ever after.
+    The court we planned for beats the one we stumbled on.
+    """
+    scheduler = entry.runtime_data.scheduler
+    if scheduler is None:
+        return set()
+    weeks: set[tuple[int, int]] = set()
+    for runner in scheduler.runners.values():
+        if not runner.job.enabled:
+            continue
+        moment = now
+        # A season is finite and the horizon is a fortnight; the bound is
+        # only a guard against a rule that yields dates for ever.
+        for _ in range(_OCCURRENCE_LIMIT):
+            slot = runner.job.next_slot(moment)
+            if slot is None or slot[0] > horizon_end:
+                break
+            # Only a slot the job will still fire at is spoken for: the
+            # one it is armed for, and those whose window has yet to open.
+            # A slot it fired at and lost, or whose window opened without
+            # it, is exactly the week a watch exists for. Keying this on
+            # the last attempt alone kept such weeks reserved until the
+            # next restart cleared it, or for good.
+            if slot[0] == runner.armed_slot or runner.job.window.opens_at(slot[0]) > now:
+                weeks.add(week_of(slot[0]))
+            moment = slot[0]
+    return weeks
+
+
 def _within_venue(rule: WatchRule, venue: VenueRules) -> WatchRule:
     """The rule, asking for a slot only while the venue still takes it.
 
@@ -221,21 +255,29 @@ class WatchRunner:
         """
         return accounts[self._reader % len(accounts)]
 
-    async def async_refresh_and_scan(self) -> Catch | None:
-        """Re-read the venue first, because something outside says to look."""
+    async def async_refresh_and_scan(self, rule_id: str | None = None) -> Catch | None:
+        """Re-read the venue first, because something outside says to look.
+
+        With `rule_id`, only that rule is consulted: somebody pressed its
+        button because they can see a court it would take.
+        """
         accounts = self.accounts()
         if accounts:
             await self.reader(accounts).runtime_data.coordinator.async_refresh()
-        return await self.async_scan()
+        return await self.async_scan(rule_id)
 
-    async def async_scan(self) -> Catch | None:
+    async def async_scan(self, rule_id: str | None = None) -> Catch | None:
         """One pass: gate, decide, book, report."""
         async with self._scanning:
-            return await self._async_scan()
+            return await self._async_scan(rule_id)
 
-    async def _async_scan(self) -> Catch | None:
+    async def _async_scan(self, rule_id: str | None) -> Catch | None:
         accounts = self.accounts()
-        rules = [rule for rule in self.rules if rule.enabled]
+        rules = [
+            rule
+            for rule in self.rules
+            if rule.enabled and (rule_id is None or rule.rule_id == rule_id)
+        ]
         if not accounts or not rules:
             self.gate_open = False
             self._note_interval(accounts, None)
@@ -261,7 +303,7 @@ class WatchRunner:
         horizon = now + timedelta(days=data.rules.max_days_ahead or DEFAULT_WINDOW_DAYS)
         ours = {entry.entry_id: self._mine(entry) for entry in accounts}
         await self._async_note_releases(accounts, ours, now)
-        reserved = {entry.entry_id: self._aimed_weeks(entry, now, horizon) for entry in accounts}
+        reserved = {entry.entry_id: aimed_weeks(entry, now, horizon) for entry in accounts}
         self.gate_open = has_capacity(
             ours, data.rules.weekly_quota_minutes, now, horizon, reserved, rules[0].tz
         )
@@ -378,41 +420,6 @@ class WatchRunner:
             account=paid_by,
         )
         await async_dispatch(self.entry.runtime_data.sinks, outcome, rule)
-
-    def _aimed_weeks(
-        self, entry: ConfigEntry, now: datetime, horizon_end: datetime
-    ) -> set[tuple[int, int]]:
-        """Weeks this account's booking jobs plan to use.
-
-        Every occurrence inside the horizon, not merely the armed one: a
-        weekly job arms one week at a time, and a watch that spent the weeks
-        it had not reached yet would leave it failing on quota for ever after.
-        The court we planned for beats the one we stumbled on.
-        """
-        scheduler = entry.runtime_data.scheduler
-        if scheduler is None:
-            return set()
-        weeks: set[tuple[int, int]] = set()
-        for runner in scheduler.runners.values():
-            if not runner.job.enabled:
-                continue
-            moment = now
-            # A season is finite and the horizon is a fortnight; the bound is
-            # only a guard against a rule that yields dates for ever.
-            for _ in range(_OCCURRENCE_LIMIT):
-                slot = runner.job.next_slot(moment)
-                if slot is None or slot[0] > horizon_end:
-                    break
-                # Only a slot the job will still fire at is spoken for: the
-                # one it is armed for, and those whose window has yet to open.
-                # A slot it fired at and lost, or whose window opened without
-                # it, is exactly the week a watch exists for. Keying this on
-                # the last attempt alone kept such weeks reserved until the
-                # next restart cleared it, or for good.
-                if slot[0] == runner.armed_slot or runner.job.window.opens_at(slot[0]) > now:
-                    weeks.add(week_of(slot[0]))
-                moment = slot[0]
-        return weeks
 
     async def _async_note_releases(
         self,

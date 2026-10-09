@@ -312,3 +312,48 @@ async def test_identity_rejects_a_payload_without_a_web_block(
     skedda.stub("GET", endpoints.SPACES.path, json={"assets": []})
     with pytest.raises(ApiContractError, match="'web' block"):
         await client.identity()
+
+
+async def test_a_move_sends_back_the_whole_booking_with_new_times(
+    http: aiohttp.ClientSession, skedda: FakeSkedda
+) -> None:
+    """Confirmed 2026-09-15: an update replaces the document; a field left out is cleared."""
+    client = await authenticated(http, skedda)
+    listed = load("bookings_list.json")
+    skedda.stub("GET", endpoints.BOOKINGS_LIST.path, json=listed)
+    original = listed["bookings"][0]
+    moved = {**original, "start": "2026-09-28T09:00:00", "end": "2026-09-28T10:00:00"}
+    skedda.stub("PUT", endpoints.booking_path(original["id"]), json={"booking": moved})
+
+    result = await client.move_booking(
+        original["id"],
+        datetime(2026, 9, 28, 8, tzinfo=KYIV),
+        datetime(2026, 9, 28, 9, tzinfo=KYIV),
+        datetime(2026, 9, 28, 10, tzinfo=KYIV),
+    )
+
+    assert result.start == datetime(2026, 9, 28, 9)
+    sent = skedda.requests_for("PUT", endpoints.booking_path(original["id"]))[0].json["booking"]
+    assert sent["start"] == "2026-09-28T09:00:00"
+    assert sent["end"] == "2026-09-28T10:00:00"
+    assert sent["endOfLastOccurrence"] == "2026-09-28T10:00:00"
+    assert sent["createdDate"] == original["createdDate"]
+    assert sent["venueuser"] == original["venueuser"]
+    assert sent["arbitraryerrors"] is None
+    listed_for = skedda.requests_for("GET", endpoints.BOOKINGS_LIST.path)[0].query
+    assert listed_for["start"] == "2026-09-28T00:00:00"
+
+
+async def test_moving_a_booking_the_venue_no_longer_lists_is_a_contract_error(
+    http: aiohttp.ClientSession, skedda: FakeSkedda
+) -> None:
+    client = await authenticated(http, skedda)
+    skedda.stub("GET", endpoints.BOOKINGS_LIST.path, json={"bookings": ["junk"]})
+
+    with pytest.raises(ApiContractError, match="not listed"):
+        await client.move_booking(
+            "nope",
+            datetime(2026, 9, 28, 8, tzinfo=KYIV),
+            datetime(2026, 9, 28, 9, tzinfo=KYIV),
+            datetime(2026, 9, 28, 10, tzinfo=KYIV),
+        )

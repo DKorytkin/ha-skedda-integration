@@ -7,6 +7,7 @@ that knowledge here and hands over a shape meant for reading.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 import voluptuous as vol
@@ -21,7 +22,7 @@ from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.util import dt as dt_util
 
-from . import google_calendar
+from . import actions, google_calendar
 from .api.errors import SkeddaError
 from .const import (
     CONF_ENABLED,
@@ -38,12 +39,18 @@ from .job_factory import build_job, venue_timezone_for
 
 TYPE_OVERVIEW = f"{DOMAIN}/overview"
 TYPE_CANCEL = f"{DOMAIN}/cancel_booking"
+TYPE_TAKE = f"{DOMAIN}/take_slot"
+TYPE_MOVE = f"{DOMAIN}/move_booking"
+TYPE_RUN_WATCH = f"{DOMAIN}/run_watch_rule"
 
 
 @callback
 def async_register(hass: HomeAssistant) -> None:
     async_register_command(hass, websocket_overview)
     async_register_command(hass, websocket_cancel_booking)
+    async_register_command(hass, websocket_take_slot)
+    async_register_command(hass, websocket_move_booking)
+    async_register_command(hass, websocket_run_watch_rule)
 
 
 @require_admin
@@ -88,8 +95,26 @@ def websocket_overview(
             "jobs": sorted(jobs, key=lambda job: job["next_slot"] or ""),
             "bookings": sorted(bookings, key=lambda booking: booking["start"]),
             "watches": watches,
+            "offers": _offers(hass),
         },
     )
+
+
+def _offers(hass: HomeAssistant) -> list[dict[str, Any]]:
+    """Free neighbours of our lone bookings, ready for a button each."""
+    titles = {entry.entry_id: entry.title for entry in hass.config_entries.async_entries(DOMAIN)}
+    return [
+        {
+            "kind": offer.kind.value,
+            "entry_id": offer.account_id,
+            "account": titles.get(offer.account_id, offer.account_id),
+            "booking_id": offer.booking_id,
+            "space_id": offer.space_id,
+            "start": offer.start.isoformat(),
+            "end": offer.end.isoformat(),
+        }
+        for offer in actions.offers(hass)
+    ]
 
 
 def _account(entry: ConfigEntry, *, authenticated: bool) -> dict[str, Any]:
@@ -231,3 +256,111 @@ async def websocket_cancel_booking(
     # The panel reads the diary, so it has to change before the reply lands.
     await entry.runtime_data.coordinator.async_refresh()
     connection.send_result(msg["id"], {"cancelled": msg["booking_id"]})
+
+
+def _loaded_account(hass: HomeAssistant, entry_id: str) -> ConfigEntry | None:
+    entry = hass.config_entries.async_get_entry(entry_id)
+    if entry is None or not is_account_entry(entry) or entry.state is not ConfigEntryState.LOADED:
+        return None
+    return entry
+
+
+def _times(msg: dict[str, Any]) -> tuple[datetime, datetime] | None:
+    start, end = dt_util.parse_datetime(msg["start"]), dt_util.parse_datetime(msg["end"])
+    if start is None or end is None or start.tzinfo is None or end <= start:
+        return None
+    return start, end
+
+
+@require_admin
+@websocket_command(
+    {
+        vol.Required("type"): TYPE_TAKE,
+        vol.Required("entry_id"): str,
+        vol.Required("space_id"): str,
+        vol.Required("start"): str,
+        vol.Required("end"): str,
+    }
+)
+@async_response
+async def websocket_take_slot(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Book a free neighbour with the account the panel offered."""
+    entry = _loaded_account(hass, msg["entry_id"])
+    if entry is None:
+        connection.send_error(msg["id"], "not_loaded", "That account is not set up.")
+        return
+    times = _times(msg)
+    if times is None:
+        connection.send_error(msg["id"], "invalid_time", "That is not a time slot.")
+        return
+    try:
+        booked = await actions.async_take(hass, entry, msg["space_id"], *times)
+    except SkeddaError as err:
+        connection.send_error(msg["id"], "take_failed", str(err))
+        return
+    connection.send_result(msg["id"], {"booking_id": booked.id})
+
+
+@require_admin
+@websocket_command(
+    {
+        vol.Required("type"): TYPE_MOVE,
+        vol.Required("entry_id"): str,
+        vol.Required("booking_id"): str,
+        vol.Required("start"): str,
+        vol.Required("end"): str,
+    }
+)
+@async_response
+async def websocket_move_booking(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Move one of our bookings onto a free neighbour."""
+    entry = _loaded_account(hass, msg["entry_id"])
+    if entry is None:
+        connection.send_error(msg["id"], "not_loaded", "That account is not set up.")
+        return
+    times = _times(msg)
+    if times is None:
+        connection.send_error(msg["id"], "invalid_time", "That is not a time slot.")
+        return
+    try:
+        moved = await actions.async_move(hass, entry, msg["booking_id"], *times)
+    except (SkeddaError, actions.ActionError) as err:
+        connection.send_error(msg["id"], "move_failed", str(err))
+        return
+    connection.send_result(msg["id"], {"booking_id": moved.id, "start": moved.start.isoformat()})
+
+
+@require_admin
+@websocket_command(
+    {
+        vol.Required("type"): TYPE_RUN_WATCH,
+        vol.Required("entry_id"): str,
+        vol.Required("rule_id"): str,
+    }
+)
+@async_response
+async def websocket_run_watch_rule(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Look now, with one rule, because somebody can see a court it wants."""
+    entry = hass.config_entries.async_get_entry(msg["entry_id"])
+    if (
+        entry is None
+        or entry_kind(entry) != ENTRY_KIND_WATCH
+        or entry.state is not ConfigEntryState.LOADED
+    ):
+        connection.send_error(msg["id"], "not_loaded", "The slot watch is not set up.")
+        return
+    if msg["rule_id"] not in entry.subentries:
+        connection.send_error(msg["id"], "unknown_rule", "That watch rule does not exist.")
+        return
+    try:
+        caught = await entry.runtime_data.watcher.async_refresh_and_scan(msg["rule_id"])
+    except SkeddaError as err:
+        connection.send_error(msg["id"], "run_failed", str(err))
+        return
+    connection.send_result(msg["id"], {"caught": caught.start.isoformat() if caught else None})
