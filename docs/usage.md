@@ -19,9 +19,9 @@ sign in, red when it cannot - and three tables below:
   is looking and how often, and its last catch. **▶ Run now** reads the venue
   at once and runs that rule alone, for when you can see a court it would take.
 
-Under a day where your accounts hold exactly one booking, **Free nearby** lists
-the free hour before and after it on the same court - only hours the venue is
-open and still takes bookings for:
+On a day where your accounts hold exactly one booking, the free hour before and
+after it on the same court appears as a faded **Free** row above or below it -
+only hours the venue is open and still takes bookings for:
 
 - **Take** books it straight away with an account that still has an hour that
   week (named beside the buttons). It does not ask: a free court goes to

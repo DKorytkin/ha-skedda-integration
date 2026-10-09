@@ -244,18 +244,25 @@ def test_releasing_a_booking_is_an_icon_that_still_says_what_it_does() -> None:
     assert "button.link.icon {" in source
 
 
-def test_a_lone_booking_shows_its_free_neighbours_with_a_button_each() -> None:
-    """Tuesday 19:00 alone: 18:00 and 20:00, to take or to move onto."""
+def test_a_free_neighbour_is_a_faded_row_on_its_own_side_of_the_booking() -> None:
+    """Tuesday 19:00 alone: 18:00 as a row above it, 20:00 as a row below."""
     source = PANEL_JS.read_text(encoding="utf-8")
 
     rows = source.split("function bookingRows(")[1].split("\nfunction ")[0]
-    assert "offerRow(" in rows
-    row = source.split("function offerRow(")[1].split("\nfunction ")[0]
+    before, booking, after = (
+        rows.index("before.map("),
+        rows.index("bookingRow(t, booking"),
+        rows.index("after.map("),
+    )
+    assert before < booking < after
+    row = source.split("function freeRow(")[1].split("\nfunction ")[0]
+    assert '<tr class="free">' in row
     assert 'data-action="${move ? "move" : "take"}"' in row
     assert "esc(offer.account)" in row
+    assert "tr.free td:not(.actions) { opacity:" in source, "faded, but not its button"
     for language in ("en", "uk"):
         strings = source.split(f"  {language}: {{")[1].split("\n  },")[0]
-        for key in ("freeNearby", "take", "moveHere", "confirmMove", "runNow", "nothingFree"):
+        for key in ("free", "take", "moveHere", "confirmMove", "runNow", "nothingFree"):
             assert f"\n    {key}: " in strings, (language, key)
 
 

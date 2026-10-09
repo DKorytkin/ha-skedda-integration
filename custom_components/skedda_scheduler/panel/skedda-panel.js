@@ -64,7 +64,7 @@ const STRINGS = {
     every: "every",
     minutes: "min",
     until: "until",
-    freeNearby: "Free nearby",
+    free: "Free",
     take: "Take",
     moveHere: "Move here",
     confirmMove: "Move this booking to",
@@ -118,7 +118,7 @@ const STRINGS = {
     every: "кожні",
     minutes: "хв",
     until: "до",
-    freeNearby: "Вільно поруч",
+    free: "Вільно",
     take: "Взяти",
     moveHere: "Перенести сюди",
     confirmMove: "Перенести це бронювання на",
@@ -316,8 +316,11 @@ class SkeddaPanel extends HTMLElement {
           background: none; color: var(--primary-color); padding: 7px 8px;
         }
         button[disabled] { opacity: .6; cursor: default; }
-        tr.offer td { border-top: none; padding-top: 0; }
-        .offers { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+        /* A slot nobody holds yet: there, but not ours - faded, with only its
+           button at full strength. */
+        tr.free td { color: var(--secondary-text-color); border-top-style: dashed; }
+        tr.free td:not(.actions) { opacity: .55; }
+        tr.free:hover td { background: none; }
         button.small { padding: 4px 12px; font-size: 12px; }
         button.ghost {
           background: none; color: var(--primary-color);
@@ -428,31 +431,35 @@ function bookingRows(t, bookings, offers) {
       day = start.toDateString();
       rows.push(dayRow(t, start, columns));
     }
-    rows.push(bookingRow(t, booking, showCourt));
     const nearby = offers.filter((offer) => offer.booking_id === booking.booking_id);
-    if (nearby.length) rows.push(offerRow(t, nearby, columns));
+    const before = nearby.filter((offer) => new Date(offer.start) < new Date(booking.start));
+    const after = nearby.filter((offer) => new Date(offer.start) >= new Date(booking.start));
+    // Each free hour sits where it falls: the one before above, the one after
+    // below, so the day reads as the court's own timeline.
+    rows.push(...before.map((offer) => freeRow(t, offer, showCourt)));
+    rows.push(bookingRow(t, booking, showCourt));
+    rows.push(...after.map((offer) => freeRow(t, offer, showCourt)));
   }
   return rows;
 }
 
-function offerRow(t, offers, columns) {
+function freeRow(t, offer, showCourt) {
   // Take is the quick one: a free hour goes to whoever asks first. Moving
   // gives up the hour we hold, so it asks first and looks quieter.
-  const buttons = offers
-    .map((offer) => {
-      const move = offer.kind === "move";
-      return `<span>${clock(t, offer.start)}
-        <button class="small ${move ? "ghost" : ""}" data-action="${move ? "move" : "take"}"
-                data-entry="${esc(offer.entry_id)}" data-space="${esc(offer.space_id)}"
-                data-booking="${esc(offer.booking_id)}"
-                data-start="${esc(offer.start)}" data-end="${esc(offer.end)}"
-                title="${esc(offer.account)}">${esc(move ? t.moveHere : t.take)}</button></span>`;
-    })
-    .join("");
-  const payer = offers[0].kind === "take" ? ` <span class="muted">· ${esc(offers[0].account)}</span>` : "";
-  return `<tr class="offer"><td class="time"></td><td colspan="${columns - 1}">
-    <div class="offers"><span class="muted">${esc(t.freeNearby)}:</span>${buttons}${payer}</div>
-  </td></tr>`;
+  const move = offer.kind === "move";
+  const payer = move ? "" : ` <span>· ${esc(offer.account)}</span>`;
+  return `<tr class="free">
+    <td class="time">${clock(t, offer.start)}</td>
+    ${showCourt ? "<td></td>" : ""}
+    <td>${esc(t.free)}${payer}</td>
+    <td class="actions">
+      <button class="small ${move ? "ghost" : ""}" data-action="${move ? "move" : "take"}"
+              data-entry="${esc(offer.entry_id)}" data-space="${esc(offer.space_id)}"
+              data-booking="${esc(offer.booking_id)}"
+              data-start="${esc(offer.start)}" data-end="${esc(offer.end)}"
+              title="${esc(offer.account)}">${esc(move ? t.moveHere : t.take)}</button>
+    </td>
+  </tr>`;
 }
 
 function dayRow(t, start, columns) {
