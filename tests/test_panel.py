@@ -242,3 +242,47 @@ def test_releasing_a_booking_is_an_icon_that_still_says_what_it_does() -> None:
     # button.link comes later in the stylesheet; one class alone lost to it and
     # the quiet icon came out in the link colour.
     assert "button.link.icon {" in source
+
+
+def test_a_lone_booking_shows_its_free_neighbours_with_a_button_each() -> None:
+    """Tuesday 19:00 alone: 18:00 and 20:00, to take or to move onto."""
+    source = PANEL_JS.read_text(encoding="utf-8")
+
+    rows = source.split("function bookingRows(")[1].split("\nfunction ")[0]
+    assert "offerRow(" in rows
+    row = source.split("function offerRow(")[1].split("\nfunction ")[0]
+    assert 'data-action="${move ? "move" : "take"}"' in row
+    assert "esc(offer.account)" in row
+    for language in ("en", "uk"):
+        strings = source.split(f"  {language}: {{")[1].split("\n  },")[0]
+        for key in ("freeNearby", "take", "moveHere", "confirmMove", "runNow", "nothingFree"):
+            assert f"\n    {key}: " in strings, (language, key)
+
+
+def test_the_panel_takes_and_moves_through_its_own_commands() -> None:
+    source = PANEL_JS.read_text(encoding="utf-8")
+
+    assert "skedda_scheduler/take_slot" in source
+    assert "skedda_scheduler/move_booking" in source
+    # Moving gives up the hour we hold, so it asks; taking races, so it does not.
+    move = source.split("  _move(button) {")[1].split("\n  }\n")[0]
+    assert "confirm(" in move
+    take = source.split("  _take(button) {")[1].split("\n  }\n")[0]
+    assert "confirm(" not in take
+
+
+def test_every_watch_rule_can_be_run_now() -> None:
+    source = PANEL_JS.read_text(encoding="utf-8")
+
+    row = source.split("function watchRow(")[1].split("\nfunction ")[0]
+    assert 'data-action="run"' in row
+    assert "esc(watch.rule_id)" in row
+    assert "skedda_scheduler/run_watch_rule" in source
+
+
+def test_releasing_and_offering_are_told_apart_by_their_action() -> None:
+    """An offer row also carries a booking id; it must not read as a cancel."""
+    source = PANEL_JS.read_text(encoding="utf-8")
+
+    assert 'closest("button[data-action]")' in source
+    assert 'data-action="cancel"' in source.split("function bookingRow(")[1].split("\nfunction ")[0]

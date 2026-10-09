@@ -174,3 +174,36 @@ async def test_a_created_booking_comes_back_with_a_zone_too(
 
     assert booking.start.tzinfo is not None
     assert booking.start.utcoffset() == datetime(2026, 9, 28, tzinfo=KYIV).utcoffset()
+
+
+async def test_a_moved_booking_comes_back_with_the_venue_zone_and_stays_ours(
+    provider: SkeddaProvider, skedda: FakeSkedda
+) -> None:
+    from zoneinfo import ZoneInfo
+
+    kyiv = ZoneInfo("Europe/Kyiv")
+    listed = load("bookings_list.json")
+    original = listed["bookings"][0]
+    skedda.stub("GET", endpoints.BOOKINGS_LIST.path, json=listed)
+    skedda.stub(
+        "PUT",
+        endpoints.booking_path(original["id"]),
+        json={
+            "booking": {**original, "start": "2026-09-28T09:00:00", "end": "2026-09-28T10:00:00"}
+        },
+    )
+    ours = Booking(
+        id=original["id"],
+        space_ids=("2000001",),
+        start=datetime(2026, 9, 28, 8, tzinfo=kyiv),
+        end=datetime(2026, 9, 28, 9, tzinfo=kyiv),
+        title="",
+        is_mine=True,
+    )
+
+    moved = await provider.move(
+        ours, datetime(2026, 9, 28, 9, tzinfo=kyiv), datetime(2026, 9, 28, 10, tzinfo=kyiv)
+    )
+
+    assert moved.start == datetime(2026, 9, 28, 9, tzinfo=kyiv)
+    assert moved.is_mine

@@ -202,3 +202,21 @@ async def test_a_release_goes_to_the_linked_calendar(hass: HomeAssistant) -> Non
         await google_calendar.async_release_event(hass, "2000001", SLOT_START, SLOT_END, "bk-1")
 
     linked.async_release.assert_awaited_once_with("2000001", SLOT_START, SLOT_END, "bk-1")
+
+
+async def test_a_booking_from_the_panel_goes_to_the_linked_calendar(hass: HomeAssistant) -> None:
+    linked = AsyncMock()
+    done = outcome(succeeded=True)
+    with patch.object(google_calendar, "async_build_sink", return_value=linked):
+        await google_calendar.async_add_event(hass, done, JOB)
+
+    linked.async_handle.assert_awaited_once_with(done, JOB)
+
+
+async def test_a_booking_from_the_panel_with_no_calendar_linked_writes_nothing(
+    hass: HomeAssistant,
+) -> None:
+    with patch.object(google_calendar, "async_build_sink", return_value=None) as build:
+        await google_calendar.async_add_event(hass, outcome(succeeded=True), JOB)
+
+    build.assert_awaited_once()

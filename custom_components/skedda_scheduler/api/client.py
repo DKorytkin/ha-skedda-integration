@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import aiohttp
@@ -206,6 +206,28 @@ class SkeddaClient:
 
     async def list_bookings(self, start: datetime, end: datetime) -> list[SkeddaBooking]:
         """List bookings in a window. Times are venue-local and timezone-aware."""
+        return [SkeddaBooking.from_payload(item) for item in await self._raw_bookings(start, end)]
+
+    async def move_booking(
+        self, booking_id: str, current_start: datetime, start: datetime, end: datetime
+    ) -> SkeddaBooking:
+        """Give an existing booking new times, keeping everything else.
+
+        One request rather than cancel-then-book: between those two, the hour
+        given up and the hour wanted could both go to somebody else.
+        """
+        day = current_start.replace(hour=0, minute=0, second=0, microsecond=0)
+        listed = await self._raw_bookings(day, day + timedelta(days=1))
+        raw = next((item for item in listed if str(item.get("id")) == booking_id), None)
+        if raw is None:
+            raise ApiContractError(f"booking {booking_id} is not listed on {day:%Y-%m-%d}")
+        _, body, _ = await self.request(
+            endpoints.Endpoint(endpoints.BOOKING_UPDATE.method, endpoints.booking_path(booking_id)),
+            json_body=endpoints.moved_booking_payload(raw, start, end),
+        )
+        return self._unwrap_booking(body)
+
+    async def _raw_bookings(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
         _, body, _ = await self.request(
             endpoints.BOOKINGS_LIST, params=endpoints.list_bookings_params(start, end)
         )
@@ -215,7 +237,7 @@ class SkeddaClient:
                 "/bookingslists carried no 'bookings' list; "
                 f"keys {sorted(body) if isinstance(body, dict) else type(body)}"
             )
-        return [SkeddaBooking.from_payload(item) for item in bookings]
+        return [item for item in bookings if isinstance(item, dict)]
 
     async def cancel_booking(self, booking_id: str) -> None:
         """Cancel a booking. Confirmed: DELETE answers 204 with no body."""

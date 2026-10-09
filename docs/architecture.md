@@ -59,6 +59,7 @@ custom_components/skedda_scheduler/
 │   ├── strategy.py           attempt planning
 │   ├── result.py             BookingAttempt, BookingOutcome
 │   ├── watch.py              which freed slot to take, and which account pays
+│   ├── offers.py             free neighbours of a lone booking, to take or move onto
 │   └── subject.py            what a sink needs to know about a job or a rule
 ├── skedda_provider.py        adapter mapping api/ onto core/
 ├── config_flow.py            account, Google Calendar and slot watch entries
@@ -74,7 +75,8 @@ custom_components/skedda_scheduler/
 ├── google_calendar.py        OAuth session wiring for the calendar sink
 ├── application_credentials.py  Google OAuth client registration
 ├── services.py               trigger_job_now, refresh_spaces, slot_freed
-├── websocket.py              the snapshot the panel renders
+├── websocket.py              the snapshot the panel renders, and its commands
+├── actions.py                take a free neighbour, move a booking onto one
 ├── panel/                    the sidebar panel: registration and its script
 ├── diagnostics.py            redacted dump for bug reports
 ├── repairs.py                the "Skedda changed its API" issue
