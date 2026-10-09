@@ -131,6 +131,8 @@ class SkeddaVenue:
     weekly_quota_minutes: int | None
     #: Empty when the venue publishes no hours, which reads as always open.
     hours: tuple[SkeddaHours, ...] = ()
+    #: How long before its start a slot may still be booked; 0 when unlimited.
+    min_minutes_ahead: int = 0
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> SkeddaVenue:
@@ -142,6 +144,7 @@ class SkeddaVenue:
             max_days_ahead=_max_days_ahead(payload.get("bookingWindow")),
             weekly_quota_minutes=_weekly_quota(payload.get("quotaRules")),
             hours=_hours(payload.get("hoursOfAvailability")),
+            min_minutes_ahead=_min_minutes_ahead(payload.get("bookingWindow")),
         )
 
 
@@ -166,6 +169,10 @@ class SkeddaHours:
 # bookingWindow.rules[].predicate: 1 means "at most N days ahead" - confirmed
 # 2026-09-15, the server rejected a later slot quoting the same value.
 _PREDICATE_MAX_DAYS_AHEAD = 1
+# predicate 2 means "at least N hours ahead" - confirmed 2026-10-09 at
+# galaktyka, value 3, refused with "You must book ... at least 3 hour(s) in
+# advance".
+_PREDICATE_MIN_HOURS_AHEAD = 2
 # quotaRules.rules[].period: 2 means "per week"; aggregationMetric 1 means the
 # value counts minutes.
 _PERIOD_WEEK = 2
@@ -218,6 +225,16 @@ def _max_days_ahead(block: Any) -> int | None:
     # Several rules can apply at once; the tightest one is what the server
     # enforces, so anything looser would let us schedule an attempt that fails.
     return min(values) if values else None
+
+
+def _min_minutes_ahead(block: Any) -> int:
+    values = [
+        int(r["value"]) * 60
+        for r in _rules(block)
+        if r.get("predicate") == _PREDICATE_MIN_HOURS_AHEAD and r.get("value") is not None
+    ]
+    # The strictest rule is the one the server enforces.
+    return max(values, default=0)
 
 
 def _weekly_quota(block: Any) -> int | None:

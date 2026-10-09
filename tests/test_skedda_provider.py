@@ -113,6 +113,7 @@ async def test_venue_settings_are_exposed_for_the_config_flow(
     venue = await provider.venue_settings()
     assert venue.timezone == "Europe/Kyiv"
     assert venue.weekly_quota_minutes == 60
+    assert venue.min_minutes_ahead == 180
     assert venue.hours == (
         OpenHours(weekdays=frozenset(range(7)), start_minute=480, end_minute=1320),
     )

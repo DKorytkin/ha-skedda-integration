@@ -118,7 +118,17 @@ class SkeddaCoordinator(TimestampDataUpdateCoordinator[SkeddaData]):
         demands = [self._arming_interval]
         if self._watch_interval is not None:
             demands.append(self._watch_interval)
-        self.update_interval = min(demands)
+        wanted = min(demands)
+        if wanted == self.update_interval:
+            return
+        self.update_interval = wanted
+        # Setting update_interval only takes effect after the next refresh, and
+        # the next refresh was the one booked at the old rate - twelve hours
+        # out. The watch asked for two minutes and got nothing between 10:36
+        # and 15:42 on 2026-10-09, while a court it wanted came free. The base
+        # class has no public way to re-book the timer.
+        if self._listeners:
+            self._schedule_refresh()
 
     @staticmethod
     def _interval_for(when: datetime | None) -> timedelta:

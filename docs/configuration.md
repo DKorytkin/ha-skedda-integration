@@ -193,7 +193,7 @@ hour a week, three accounts are what three hours in a row costs.
 | **What counts as a catch** | both | See below |
 | **Most minutes in one day** | 120 min | A catch is refused if it would leave us holding more than this that day, counting every booking we have there |
 | **A neighbour may be on another court** | off | Whether a block may continue on a different space |
-| **Ignore slots starting sooner than** | 180 min | A court starting in an hour cannot be filled with people |
+| **Ignore slots starting sooner than** | 180 min | A court starting in an hour cannot be filled with people. Never less than the venue's own minimum notice, which is read from Skedda |
 | **How often to look** | Stepped | Calm 30/15/5, Stepped 15/5/2, Fast 5/2/1 minutes |
 | **Book it** | on | Turn off to be told and take it yourself |
 | **Watch until** | empty | The last day watched. For a rule meant for one day, pick that day |

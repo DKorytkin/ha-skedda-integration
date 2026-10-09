@@ -808,3 +808,67 @@ async def test_the_watch_never_asks_for_an_hour_the_venue_is_shut(
 
     assert caught is None
     mock_provider.book.assert_not_awaited()
+
+
+def test_a_rule_never_asks_sooner_than_the_venue_allows() -> None:
+    """Seen 2026-10-09: an hour's lead at a venue wanting three."""
+    from dataclasses import replace
+
+    from custom_components.skedda_scheduler.core.watch import WatchRule
+    from custom_components.skedda_scheduler.watcher import _within_venue
+    from tests.conftest import VENUE_RULES
+
+    rule = WatchRule(
+        rule_id="r",
+        name="Friday",
+        weekdays=frozenset({4}),
+        not_before=datetime(2026, 1, 1, 18).time(),
+        not_after=datetime(2026, 1, 1, 21).time(),
+        space_ids=(),
+        duration_minutes=60,
+        venue_timezone="Europe/Kyiv",
+        min_lead_minutes=60,
+    )
+
+    assert _within_venue(rule, replace(VENUE_RULES, min_minutes_ahead=180)).min_lead_minutes == 180
+    assert _within_venue(rule, VENUE_RULES) is rule
+
+
+async def test_a_slot_the_venue_refused_outright_gives_way_to_the_next(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """One catch per scan: a refused best slot must not hide the others."""
+    from custom_components.skedda_scheduler.api.errors import ApiContractError
+
+    await setup_account(hass, mock_entry)
+    watch = await watch_entry_with_rule(hass)
+    runner = watch.runtime_data.watcher
+    mock_provider.book.side_effect = ApiContractError("must book 3 hour(s) in advance")
+    assert await runner.async_scan() is None
+    refused = mock_provider.book.await_args.args[0]
+    mock_provider.book.reset_mock()
+
+    await runner.async_scan()
+
+    asked = mock_provider.book.await_args.args[0]
+    assert (asked.space_id, asked.start) != (refused.space_id, refused.start)
+
+
+async def test_a_slot_lost_in_a_race_is_still_worth_watching(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Taken now may be given up again later."""
+    from custom_components.skedda_scheduler.api.errors import SlotTakenError
+
+    await setup_account(hass, mock_entry)
+    watch = await watch_entry_with_rule(hass)
+    runner = watch.runtime_data.watcher
+    mock_provider.book.side_effect = SlotTakenError("conflicts with")
+    await runner.async_scan()
+    first = mock_provider.book.await_args.args[0]
+    mock_provider.book.reset_mock()
+
+    await runner.async_scan()
+
+    again = mock_provider.book.await_args.args[0]
+    assert (again.space_id, again.start) == (first.space_id, first.start)
