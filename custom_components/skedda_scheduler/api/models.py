@@ -152,7 +152,7 @@ class SkeddaVenue:
 class SkeddaHours:
     """One hoursOfAvailability rule: when the venue takes bookings at all.
 
-    Seen 2026-10-08 at galaktyka: {"spaceIds": null, "start": 480, "end": 1320,
+    Seen 2026-10-08: {"spaceIds": null, "start": 480, "end": 1320,
     "daysBitmask": 127} - minutes past venue-local midnight, 08:00 to 22:00.
     A booking outside it is refused with "not fully within the hours of
     availability".
@@ -170,7 +170,7 @@ class SkeddaHours:
 # 2026-09-15, the server rejected a later slot quoting the same value.
 _PREDICATE_MAX_DAYS_AHEAD = 1
 # predicate 2 means "at least N hours ahead" - confirmed 2026-10-09 at
-# galaktyka, value 3, refused with "You must book ... at least 3 hour(s) in
+# value 3, refused with "You must book ... at least 3 hour(s) in
 # advance".
 _PREDICATE_MIN_HOURS_AHEAD = 2
 # quotaRules.rules[].period: 2 means "per week"; aggregationMetric 1 means the
