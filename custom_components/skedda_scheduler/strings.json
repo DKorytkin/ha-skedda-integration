@@ -173,7 +173,6 @@
             "mode": "What counts as a catch",
             "max_block_minutes": "Most minutes in one day",
             "allow_other_court": "A neighbour may be on another court",
-            "min_lead_minutes": "Ignore slots starting sooner than",
             "speed": "How often to look",
             "book": "Book it",
             "season_end": "Watch until",
@@ -186,7 +185,6 @@
             "space_ids": "Leave empty for any court. The order is the order they are tried in.",
             "mode": "Next to ours grows a block; the free-slot rule only applies on a day we hold nothing.",
             "max_block_minutes": "A catch is refused if it would leave us holding more than this on that day, counting every booking we already have there. 120 is two slots.",
-            "min_lead_minutes": "A court starting in an hour cannot be filled with people.",
             "speed": "Looking more often costs the venue more requests. Watching stops entirely when no account has quota left.",
             "book": "Turn off to be told about the slot and take it yourself.",
             "season_end": "The last day this rule watches. Empty means every week, with no end. For a single day, pick that day here."
@@ -205,7 +203,6 @@
             "mode": "What counts as a catch",
             "max_block_minutes": "Most minutes in one day",
             "allow_other_court": "A neighbour may be on another court",
-            "min_lead_minutes": "Ignore slots starting sooner than",
             "speed": "How often to look",
             "book": "Book it",
             "season_end": "Watch until",
@@ -218,7 +215,6 @@
             "space_ids": "Leave empty for any court. The order is the order they are tried in.",
             "mode": "Next to ours grows a block; the free-slot rule only applies on a day we hold nothing.",
             "max_block_minutes": "A catch is refused if it would leave us holding more than this on that day, counting every booking we already have there. 120 is two slots.",
-            "min_lead_minutes": "A court starting in an hour cannot be filled with people.",
             "speed": "Looking more often costs the venue more requests. Watching stops entirely when no account has quota left.",
             "book": "Turn off to be told about the slot and take it yourself.",
             "season_end": "The last day this rule watches. Empty means every week, with no end. For a single day, pick that day here."

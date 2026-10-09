@@ -72,7 +72,7 @@ def test_the_optional_fields_carry_their_defaults() -> None:
     rule = build_rule("sub-1", DATA, "Europe/Kyiv")
 
     assert rule.max_block_minutes == 120
-    assert rule.min_lead_minutes == 180
+    assert rule.min_lead_minutes == 0, "the venue's notice is filled in later"
     assert rule.allow_other_court is False
     assert rule.notify_targets == ()
 
@@ -85,7 +85,6 @@ def test_what_the_form_stored_overrides_every_default() -> None:
             "mode": "neighbour",
             "speed": "fast",
             "max_block_minutes": 120,
-            "min_lead_minutes": 60,
             "allow_other_court": True,
             "book": False,
             "enabled": False,
@@ -97,8 +96,14 @@ def test_what_the_form_stored_overrides_every_default() -> None:
     assert rule.mode is WatchMode.NEIGHBOUR
     assert rule.speed is WatchSpeed.FAST
     assert rule.max_block_minutes == 120
-    assert rule.min_lead_minutes == 60
     assert rule.allow_other_court is True
     assert rule.book is False
     assert rule.enabled is False
     assert rule.notify_targets == ("notify.mobile",)
+
+
+def test_a_lead_time_stored_by_an_older_version_is_ignored() -> None:
+    """The field is gone from the form; the venue's own notice decides."""
+    assert (
+        build_rule("sub-1", {**DATA, "min_lead_minutes": 60}, "Europe/Kyiv").min_lead_minutes == 0
+    )

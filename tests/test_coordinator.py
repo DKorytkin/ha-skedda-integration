@@ -11,7 +11,7 @@ from freezegun import freeze_time
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
 from custom_components.skedda_scheduler.api.errors import (
     SkeddaAuthError,
@@ -264,3 +264,42 @@ async def test_an_imminent_arming_still_wins_over_a_calm_watch(
     coordinator.async_note_next_arming(dt_util.utcnow() + timedelta(minutes=10))
 
     assert coordinator.update_interval == UPDATE_INTERVAL
+
+
+async def test_a_shorter_interval_is_polled_at_rather_than_merely_recorded(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Seen 2026-10-09: two minutes asked for, nothing polled for five hours.
+
+    The base class re-books its timer only after a refresh, and the refresh
+    already booked was twelve hours away.
+    """
+    await setup_with_job(hass, mock_entry)
+    coordinator = mock_entry.runtime_data.coordinator
+    coordinator.async_note_next_arming(None)
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=1))
+    await hass.async_block_till_done()
+    mock_provider.list_bookings.reset_mock()
+
+    coordinator.async_note_watch_interval(timedelta(minutes=2))
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(minutes=3))
+    await hass.async_block_till_done()
+
+    assert mock_provider.list_bookings.await_count >= 1
+
+
+async def test_asking_for_the_same_interval_again_does_not_put_the_poll_off(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Re-booking on every call would push the poll back for as long as asked."""
+    await setup_with_job(hass, mock_entry)
+    coordinator = mock_entry.runtime_data.coordinator
+    coordinator.async_note_watch_interval(timedelta(minutes=2))
+    mock_provider.list_bookings.reset_mock()
+
+    for minute in range(1, 4):
+        coordinator.async_note_watch_interval(timedelta(minutes=2))
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(minutes=minute))
+        await hass.async_block_till_done()
+
+    assert mock_provider.list_bookings.await_count >= 1

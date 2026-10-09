@@ -145,3 +145,14 @@ def test_hours_for_some_days_and_some_courts_keep_both() -> None:
 
 def test_a_venue_that_publishes_no_hours_has_none() -> None:
     assert SkeddaVenue.from_payload({"timeZoneId": "Europe/Kyiv"}).hours == ()
+
+
+def test_the_least_notice_a_booking_needs_is_read_in_minutes() -> None:
+    """Captured live 2026-10-09: predicate 2, value 3 - three hours ahead."""
+    venue = SkeddaVenue.from_payload(_load("webs.json")["venue"][0])
+
+    assert venue.min_minutes_ahead == 180
+
+
+def test_a_venue_that_takes_bookings_at_any_notice_needs_none() -> None:
+    assert SkeddaVenue.from_payload({"timeZoneId": "Europe/Kyiv"}).min_minutes_ahead == 0

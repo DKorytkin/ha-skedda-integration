@@ -17,7 +17,6 @@ from .const import (
     CONF_DURATION,
     CONF_ENABLED,
     CONF_MAX_BLOCK_MINUTES,
-    CONF_MIN_LEAD_MINUTES,
     CONF_MODE,
     CONF_NAME,
     CONF_NOT_AFTER,
@@ -29,7 +28,6 @@ from .const import (
     CONF_WEEKDAYS,
     DEFAULT_DURATION_MINUTES,
     DEFAULT_MAX_BLOCK_MINUTES,
-    DEFAULT_MIN_LEAD_MINUTES,
 )
 from .core.watch import WatchMode, WatchRule, WatchSpeed
 
@@ -64,7 +62,6 @@ def build_rule(subentry_id: str, data: Mapping[str, Any], venue_timezone: str) -
         mode=WatchMode(data.get(CONF_MODE, WatchMode.BOTH)),
         max_block_minutes=int(data.get(CONF_MAX_BLOCK_MINUTES, DEFAULT_MAX_BLOCK_MINUTES)),
         allow_other_court=bool(data.get(CONF_ALLOW_OTHER_COURT, False)),
-        min_lead_minutes=int(data.get(CONF_MIN_LEAD_MINUTES, DEFAULT_MIN_LEAD_MINUTES)),
         speed=WatchSpeed(data.get(CONF_SPEED, WatchSpeed.STEPPED)),
         book=bool(data.get(CONF_BOOK, True)),
         active_until=_date(data.get(CONF_SEASON_END)),

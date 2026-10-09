@@ -22,7 +22,6 @@ RULE_INPUT: dict[str, Any] = {
     "duration_minutes": 60,
     "mode": "both",
     "max_block_minutes": 180,
-    "min_lead_minutes": 180,
     "speed": "stepped",
     "book": True,
 }

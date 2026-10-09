@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import replace
 from datetime import datetime, timedelta
 
 from homeassistant.config_entries import SIGNAL_CONFIG_ENTRY_CHANGED, ConfigEntry, ConfigEntryChange
@@ -17,10 +18,17 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.util import dt as dt_util
 
 from . import google_calendar
-from .api.errors import SkeddaError
+from .api.errors import (
+    AuthExpiredError,
+    QuotaExceededError,
+    RateLimitedError,
+    SkeddaConnectionError,
+    SkeddaError,
+    SlotTakenError,
+)
 from .const import CONF_VENUE, DEFAULT_WINDOW_DAYS, DOMAIN, SUBENTRY_TYPE_WATCH_RULE
 from .coordinator import SkeddaData
-from .core.provider import Booking, BookingRequest
+from .core.provider import Booking, BookingRequest, VenueRules
 from .core.result import AttemptStatus, BookingAttempt, BookingOutcome
 from .core.watch import (
     Catch,
@@ -53,6 +61,27 @@ def _nearest_start(
     return min((candidate.start for candidate in found), default=None)
 
 
+#: Refusals that say nothing about the slot itself: somebody was quicker, the
+#: venue could not be asked, or this account's hour is spent and another may
+#: pay (seen 2026-10-08). Anything else will be refused again.
+_WORTH_ASKING_AGAIN = (
+    SlotTakenError,
+    SkeddaConnectionError,
+    RateLimitedError,
+    AuthExpiredError,
+    QuotaExceededError,
+)
+
+
+def _within_venue(rule: WatchRule, venue: VenueRules) -> WatchRule:
+    """The rule, asking for a slot only while the venue still takes it.
+
+    Seen 2026-10-09: a slot three hours off at a venue wanting three hours'
+    notice was asked for on every scan, and refused every time.
+    """
+    return replace(rule, min_lead_minutes=venue.min_minutes_ahead)
+
+
 class WatchRunner:
     """One venue's watch: the rules, the gate, and the catch."""
 
@@ -78,6 +107,12 @@ class WatchRunner:
         #: each other to the same slot. One at a time, each seeing what the
         #: one before it booked.
         self._scanning = asyncio.Lock()
+        #: Slots the venue refused for a reason that will not change by asking
+        #: again, as (space, start, end). The watch takes one slot per scan, so
+        #: a refused best slot asked for again on every scan hid every other
+        #: one. Seen 2026-10-09: 18:00 refused as "too soon" five times a scan
+        #: while 19:00 came free.
+        self._refused: set[tuple[str, datetime, datetime]] = set()
 
     @callback
     def async_add_listener(self, listener: CALLBACK_TYPE) -> CALLBACK_TYPE:
@@ -219,8 +254,10 @@ class WatchRunner:
         )
         if data is None:
             return None
+        rules = [_within_venue(rule, data.rules) for rule in rules]
 
         now = dt_util.utcnow()
+        self._refused = {slot for slot in self._refused if slot[2] > now}
         horizon = now + timedelta(days=data.rules.max_days_ahead or DEFAULT_WINDOW_DAYS)
         ours = {entry.entry_id: self._mine(entry) for entry in accounts}
         await self._async_note_releases(accounts, ours, now)
@@ -242,7 +279,7 @@ class WatchRunner:
             horizon,
             data.rules.slot_minutes,
             reserved,
-            self._released(accounts),
+            self._released(accounts) | self._refused,
             data.rules.is_open,
         )
         if catch is None:
@@ -307,6 +344,8 @@ class WatchRunner:
                 # Losing the race is the ordinary outcome, not a fault: the
                 # slot was free a moment ago and now is not.
                 _LOGGER.info("Watch rule %s did not get %s: %s", rule.name, catch.start, err)
+                if not isinstance(err, _WORTH_ASKING_AGAIN):
+                    self._refused.add((catch.space_id, catch.start, catch.end))
                 return None
         # The booking spent an hour and changed the block, so the next decision
         # must not be made against the snapshot this one came from.

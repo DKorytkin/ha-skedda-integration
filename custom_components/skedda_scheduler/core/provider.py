@@ -116,6 +116,8 @@ class VenueRules:
     weekly_quota_minutes: int | None
     #: Empty means the venue has said nothing, which is read as always open.
     hours: tuple[OpenHours, ...] = ()
+    #: How long before its start a slot may still be booked; 0 when unlimited.
+    min_minutes_ahead: int = 0
 
     def is_open(self, space_id: str, start: datetime, end: datetime) -> bool:
         """Whether the venue would accept a booking of this space at this time."""

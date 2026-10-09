@@ -56,8 +56,10 @@ class WatchRule:
     #: hours is two slots: a day that already has them is full.
     max_block_minutes: int = 120
     allow_other_court: bool = False
-    #: A slot starting sooner than this is no use: nobody can be gathered.
-    min_lead_minutes: int = 180
+    #: The venue's minimum notice, filled in from its settings by the watcher.
+    #: Not a user setting: a slot inside the hours is wanted whenever it can
+    #: still be booked.
+    min_lead_minutes: int = 0
     speed: WatchSpeed = WatchSpeed.STEPPED
     #: False means notify and leave the slot alone.
     book: bool = True

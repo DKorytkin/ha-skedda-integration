@@ -51,6 +51,7 @@ class SkeddaProvider:
                 )
                 for hours in venue.hours
             ),
+            min_minutes_ahead=venue.min_minutes_ahead,
         )
 
     async def book(self, request: BookingRequest) -> Booking:
