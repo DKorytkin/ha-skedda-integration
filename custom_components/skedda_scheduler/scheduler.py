@@ -36,6 +36,7 @@ from .core.job import BookingJob
 from .core.provider import BookingProvider, BookingRequest
 from .core.result import AttemptStatus, BookingAttempt, BookingOutcome
 from .core.strategy import build_strategy, should_retry
+from .core.watch import accounts_with_quota, week_of
 from .job_factory import build_job, venue_timezone_for
 from .repairs import async_clear_contract_issue, async_raise_contract_issue
 from .sinks import ResultSink, async_dispatch, build_sinks
@@ -87,6 +88,13 @@ CATCH_UP_DELAY = timedelta(seconds=1)
 REASON_ALREADY_BOOKED = "already_booked"
 #: Recorded when the last poll shows somebody else on the slot.
 REASON_SLOT_TAKEN = "slot_taken"
+#: Recorded when catching up on a week this account has already spent its
+#: hour in: the venue would refuse, and the refusal would reach the phone.
+REASON_QUOTA_SPENT = "quota_spent"
+
+#: How long after its window opened a run counts as catching up rather than
+#: racing. The burst itself fires for a few seconds past the open instant.
+CATCHING_UP_AFTER = timedelta(minutes=1)
 
 
 def _status_for(error: SkeddaError) -> AttemptStatus:
@@ -233,7 +241,13 @@ class JobRunner:
             return
         try:
             await self._async_warm_up()
-            await self._async_execute(self.job.window.opens_at(slot[0]), slot, racing=True)
+            opens_at = self.job.window.opens_at(slot[0])
+            await self._async_execute(
+                opens_at,
+                slot,
+                racing=True,
+                catching_up=dt_util.utcnow() > opens_at + CATCHING_UP_AFTER,
+            )
         finally:
             # Always re-arm, however the run ended: a failed week must not
             # silently retire the job.
@@ -264,6 +278,7 @@ class JobRunner:
         slot: tuple[datetime, datetime] | None = None,
         *,
         racing: bool = False,
+        catching_up: bool = False,
     ) -> BookingOutcome:
         if slot is None:
             slot = self.job.next_slot(dt_util.utcnow())
@@ -283,6 +298,11 @@ class JobRunner:
             )
             reason = REASON_ALREADY_BOOKED if holder else REASON_SLOT_TAKEN
             return await self._async_no_op(slot_start, slot_end, reason=reason)
+        # Only when catching up. At the open instant the poll is minutes old,
+        # and the hour it counted may just have been given up for this slot.
+        if catching_up and self._quota_spent(slot_start):
+            _LOGGER.debug("Job %s: the week of %s is already spent", self.job.job_id, slot_start)
+            return await self._async_no_op(slot_start, slot_end, reason=REASON_QUOTA_SPENT)
 
         request = BookingRequest(
             space_id=self.job.primary_space_id,
@@ -387,6 +407,16 @@ class JobRunner:
         if not held:
             return None
         return any(booking.is_mine for booking in held)
+
+    def _quota_spent(self, slot_start: datetime) -> bool:
+        """Whether the last poll shows this account's hour that week used up."""
+        try:
+            data = self.entry.runtime_data.coordinator.data
+            bookings, quota = data.bookings, data.rules.weekly_quota_minutes
+        except AttributeError:
+            return False
+        mine = [booking for booking in bookings if booking.is_mine]
+        return not accounts_with_quota({self.entry.entry_id: mine}, quota, week_of(slot_start))
 
     async def _async_no_op(
         self, slot_start: datetime, slot_end: datetime, *, reason: str | None

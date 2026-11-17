@@ -93,7 +93,12 @@ def aimed_weeks(entry: ConfigEntry, now: datetime, horizon_end: datetime) -> set
         # only a guard against a rule that yields dates for ever.
         for _ in range(_OCCURRENCE_LIMIT):
             slot = runner.job.next_slot(moment)
-            if slot is None or slot[0] > horizon_end:
+            # Compared by week, not by instant: the horizon ends at this
+            # minute a fortnight on, and a job slot a few hours past it still
+            # shares its week with slots the watch can already see. Seen
+            # 2026-11-12: 20:00 left out, 18:00 the same day taken with the
+            # job's hour, the job failing on quota three weeks running.
+            if slot is None or week_of(slot[0]) > week_of(horizon_end.astimezone(slot[0].tzinfo)):
                 break
             # Only a slot the job will still fire at is spoken for: the
             # one it is armed for, and those whose window has yet to open.
@@ -376,8 +381,10 @@ class WatchRunner:
 
     async def _async_book(self, catch: Catch, rule: WatchRule) -> Booking | None:
         entry = next(entry for entry in self.accounts() if entry.entry_id == catch.account_id)
+        # No title: the venue's day view prints it next to the booker's name,
+        # and the rule's name is ours, not something to show everybody.
         request = BookingRequest(
-            space_id=catch.space_id, start=catch.start, end=catch.end, title=rule.name
+            space_id=catch.space_id, start=catch.start, end=catch.end, title=""
         )
         async with entry.runtime_data.semaphore:
             try:

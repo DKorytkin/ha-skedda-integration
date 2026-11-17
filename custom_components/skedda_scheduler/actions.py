@@ -22,9 +22,6 @@ from .core.result import AttemptStatus, BookingAttempt, BookingOutcome
 from .entry_kinds import is_account_entry
 from .watcher import aimed_weeks
 
-#: Booking title for a slot taken from the panel.
-PANEL_TITLE = "Skedda panel"
-
 
 class ActionError(Exception):
     """Something the person who clicked should be told, in plain words."""
@@ -89,7 +86,7 @@ async def async_take(
     hass: HomeAssistant, entry: ConfigEntry, space_id: str, start: datetime, end: datetime
 ) -> Booking:
     """Book a free slot with this account, and put it in the calendar."""
-    request = BookingRequest(space_id=space_id, start=start, end=end, title=PANEL_TITLE)
+    request = BookingRequest(space_id=space_id, start=start, end=end, title="")
     async with entry.runtime_data.semaphore:
         booked: Booking = await entry.runtime_data.provider.book(request)
     await _async_after(hass, entry, booked)

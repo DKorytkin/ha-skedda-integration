@@ -806,3 +806,53 @@ async def test_an_armed_run_books_the_slot_it_was_armed_for(
 
     request = mock_provider.book.await_args.args[0]
     assert request.start == target
+
+
+async def test_a_catch_up_for_a_week_whose_hour_is_spent_fires_nothing(
+    runner: JobRunner, mock_provider: AsyncMock, no_sleep: None
+) -> None:
+    """Observed 2026-11-17: a restart, a push saying quota_exceeded.
+
+    The window for Thursday 20:00 had long opened, and the account already
+    held 18:00 that Thursday - its one hour of the week. Catching up fired
+    anyway, was refused, and the phone buzzed about a refusal the last poll
+    had already foretold.
+    """
+    slot_start, _ = JOB.next_slot(NOW)
+    runner.entry.runtime_data.coordinator.data.bookings = [
+        replace(BOOKING, start=slot_start - timedelta(hours=2), is_mine=True)
+    ]
+
+    with patch("custom_components.skedda_scheduler.scheduler.dt_util.utcnow", return_value=NOW):
+        runner.async_schedule()
+        await runner._async_armed(NOW)
+        runner.async_cancel()
+
+    assert mock_provider.book.await_count == 0
+    last = runner.store.last_outcome(JOB.job_id)
+    assert last is not None
+    assert last["failure_reason"] == "quota_spent"
+    assert last["attempts"] == 0
+
+
+async def test_a_window_opening_now_is_fired_at_whatever_the_last_poll_said(
+    runner: JobRunner, mock_provider: AsyncMock, no_sleep: None
+) -> None:
+    """A poll is minutes old: the hour it counted may have been given up since.
+
+    Somebody cancelling 18:00 at 19:59 so the job can have 20:00 is exactly
+    the person who must not be second-guessed by a stale snapshot.
+    """
+    target = datetime(2026, 9, 22, 18, 0, tzinfo=JOB.tz)
+    opens = JOB.window.opens_at(target)
+    runner.entry.runtime_data.coordinator.data.bookings = [
+        replace(BOOKING, start=target - timedelta(hours=2), is_mine=True)
+    ]
+    runner.attempted_slot = datetime(2026, 9, 8, 18, 0, tzinfo=JOB.tz)
+
+    with patch("custom_components.skedda_scheduler.scheduler.dt_util.utcnow", return_value=opens):
+        runner.armed_slot = target
+        await runner._async_armed(opens)
+        runner.async_cancel()
+
+    assert mock_provider.book.await_count > 0
