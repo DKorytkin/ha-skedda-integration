@@ -142,6 +142,8 @@ async def test_taking_a_slot_books_it_and_writes_the_calendar(
     assert response["result"] == {"booking_id": "new-20"}
     request = mock_provider.book.await_args.args[0]
     assert (request.space_id, request.start, request.end) == ("2000001", evening(20), evening(21))
+    # The venue's day view prints any title next to the booker's name.
+    assert request.title == ""
     outcome = add_event.await_args.args[1]
     assert (outcome.booking_id, outcome.slot_start, outcome.account) == (
         "new-20",
