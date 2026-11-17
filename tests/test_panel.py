@@ -293,3 +293,24 @@ def test_releasing_and_offering_are_told_apart_by_their_action() -> None:
 
     assert 'closest("button[data-action]")' in source
     assert 'data-action="cancel"' in source.split("function bookingRow(")[1].split("\nfunction ")[0]
+
+
+def test_the_panel_has_a_way_out_on_a_phone() -> None:
+    """Reported 2026-11-17: on a phone the only way out was closing the app.
+
+    Home Assistant hides its sidebar on a narrow screen. The panel shows the
+    frontend's own menu button, so it matches every other page.
+    """
+    source = PANEL_JS.read_text(encoding="utf-8")
+
+    assert "set narrow(" in source
+    assert 'createElement("ha-menu-button")' in source
+    assert "hass-toggle-menu" in source
+
+
+def test_an_error_is_shown_as_words_not_as_an_object() -> None:
+    """Seen 2026-11-17 after a restart: "[object Object]" in red."""
+    source = PANEL_JS.read_text(encoding="utf-8")
+
+    assert "function describe(" in source
+    assert "err.message || String(err)" not in source

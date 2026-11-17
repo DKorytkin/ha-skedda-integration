@@ -44,6 +44,8 @@ const STRINGS = {
     cancelling: "Cancelling…",
     confirmCancel: "Release this court time?",
     loading: "Loading…",
+    menu: "Menu",
+    offline: "No connection to Home Assistant. Retrying…",
     armed: "waiting for the window",
     disabled: "turned off",
     out_of_season: "out of season",
@@ -98,6 +100,8 @@ const STRINGS = {
     cancelling: "Скасовую…",
     confirmCancel: "Звільнити цей час на корті?",
     loading: "Завантаження…",
+    menu: "Меню",
+    offline: "Немає з'єднання з Home Assistant. Пробую ще…",
     armed: "чекає на відкриття вікна",
     disabled: "вимкнено",
     out_of_season: "поза сезоном",
@@ -133,6 +137,9 @@ const STRINGS = {
 //: datetime.weekday(): Monday first.
 const DAY_NAMES = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
+//: mdi:menu, the icon Home Assistant's own menu button draws.
+const MENU_ICON = "M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z";
+
 const SETTINGS_URL = "/config/integrations/integration/skedda_scheduler";
 
 class SkeddaPanel extends HTMLElement {
@@ -146,6 +153,30 @@ class SkeddaPanel extends HTMLElement {
       // to look again on its own or it quietly goes stale.
       this._timer = setInterval(() => this._refresh(), 30000);
     }
+  }
+
+  set narrow(narrow) {
+    // Home Assistant hides its sidebar on a phone; the panel then owns the
+    // only way out, or the app has to be closed to leave it.
+    this._narrow = narrow;
+    if (this._data) this._paint();
+  }
+
+  /** Home Assistant's own menu button, so it matches every other page - size,
+   * place, and the dot it shows for pending notifications. A plain button
+   * drawn the same way stands in if the frontend ever stops defining it. */
+  _mountMenu(body) {
+    const slot = body.querySelector(".toolbar");
+    if (!slot) return;
+    if (customElements.get("ha-menu-button")) {
+      const button = document.createElement("ha-menu-button");
+      button.hass = this._hass;
+      button.narrow = true;
+      slot.append(button);
+      return;
+    }
+    slot.innerHTML = `<button class="menu" data-action="menu" aria-label="${esc(this._t.menu)}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="${MENU_ICON}"/></svg></button>`;
   }
 
   disconnectedCallback() {
@@ -162,7 +193,7 @@ class SkeddaPanel extends HTMLElement {
       this._data = await this._hass.callWS({ type: "skedda_scheduler/overview" });
       this._error = null;
     } catch (err) {
-      this._error = err.message || String(err);
+      this._error = describe(err, this._t);
     }
     this._paint();
   }
@@ -178,7 +209,7 @@ class SkeddaPanel extends HTMLElement {
         booking_id: bookingId,
       });
     } catch (err) {
-      this._error = err.message || String(err);
+      this._error = describe(err, this._t);
     }
     await this._refresh();
   }
@@ -192,7 +223,7 @@ class SkeddaPanel extends HTMLElement {
       result = await this._hass.callWS(message);
       this._error = null;
     } catch (err) {
-      this._error = err.message || String(err);
+      this._error = describe(err, this._t);
     }
     await this._refresh();
     return result;
@@ -249,6 +280,17 @@ class SkeddaPanel extends HTMLElement {
           box-sizing: border-box;
         }
         .wrap { max-width: 1100px; margin: 0 auto; }
+        /* The height and inset of Home Assistant's own top bar, so the menu
+           sits where it does on every other page. */
+        .toolbar {
+          display: flex; align-items: center; height: 56px;
+          margin: -16px -16px 0; padding: 0 4px;
+        }
+        button.menu {
+          background: none; color: var(--sidebar-icon-color, var(--primary-text-color));
+          width: 48px; height: 48px; padding: 12px; border-radius: 50%;
+        }
+        button.menu svg { width: 24px; height: 24px; display: block; fill: currentColor; }
         header {
           display: flex; align-items: center; gap: 16px;
           margin-bottom: 16px; flex-wrap: wrap;
@@ -333,6 +375,9 @@ class SkeddaPanel extends HTMLElement {
       const button = event.target.closest("button[data-action]");
       if (!button) return;
       const action = button.dataset.action;
+      if (action === "menu") {
+        this.dispatchEvent(new Event("hass-toggle-menu", { bubbles: true, composed: true }));
+      }
       if (action === "cancel") this._cancel(button.dataset.entry, button.dataset.booking, button);
       if (action === "take") this._take(button);
       if (action === "move") this._move(button);
@@ -353,7 +398,7 @@ class SkeddaPanel extends HTMLElement {
     }
     const { accounts, bookings, jobs, watches, offers } = this._data;
     body.innerHTML = `
-      ${header(t, accounts)}
+      ${header(t, accounts, this._narrow)}
       ${this._error ? `<div class="card"><div class="error">${esc(this._error)}</div></div>` : ""}
       ${card(
         t.existingBookings,
@@ -377,10 +422,11 @@ class SkeddaPanel extends HTMLElement {
         t.noWatches,
       )}
     `;
+    this._mountMenu(body);
   }
 }
 
-function header(t, accounts) {
+function header(t, accounts, narrow) {
   const chips = accounts.length
     ? accounts
         .map(
@@ -399,6 +445,7 @@ function header(t, accounts) {
         .join("")
     : `<a class="chip" href="${SETTINGS_URL}">${esc(t.noAccounts)}</a>`;
   return `
+    ${narrow ? `<div class="toolbar"></div>` : ""}
     <header>
       <div class="brand">
         <svg viewBox="0 0 708 708" aria-hidden="true">
@@ -560,6 +607,21 @@ function clock(t, iso) {
 
 function pad(number) {
   return String(number).padStart(2, "0");
+}
+
+/** A sentence for whatever a websocket call rejected with.
+ *
+ * Home Assistant rejects with {code, message}, but a dropped connection
+ * rejects with a bare number, and some errors carry no message at all. Seen
+ * 2026-11-17 after a restart: "[object Object]" in red at the top of the page.
+ */
+function describe(err, t) {
+  if (typeof err === "number") return t.offline;
+  if (typeof err === "string") return err;
+  if (err && typeof err.message === "string" && err.message) return err.message;
+  if (err && err.error && typeof err.error.message === "string") return err.error.message;
+  if (err && err.code !== undefined) return `${t.offline} (${err.code})`;
+  return t.offline;
 }
 
 function esc(value) {
