@@ -7,7 +7,10 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
+from homeassistant.util import slugify
 
+from ..const import PANEL_URL_PATH
 from ..core.result import BookingOutcome
 from ..core.subject import BookingSubject
 
@@ -17,6 +20,12 @@ _LOGGER = logging.getLogger(__name__)
 #: Modern notify targets are entities, reached through one shared service.
 NOTIFY_DOMAIN = "notify"
 SERVICE_SEND_MESSAGE = "send_message"
+
+#: The companion app's integration, whose notify entities cannot carry a link.
+MOBILE_APP = "mobile_app"
+
+#: What a tapped notification opens: `url` on iOS, `clickAction` on Android.
+PANEL_LINK = {"url": f"/{PANEL_URL_PATH}", "clickAction": f"/{PANEL_URL_PATH}"}
 
 
 def build_message(outcome: BookingOutcome, subject: BookingSubject) -> str:
@@ -79,9 +88,29 @@ class NotifySink:
         notify.<entity> as a service finds nothing and the user hears nothing.
         """
         if domain == NOTIFY_DOMAIN and self._hass.states.get(target) is not None:
+            if phone := self._phone_service(target):
+                return NOTIFY_DOMAIN, phone, {"message": message, "data": PANEL_LINK}
             return (
                 NOTIFY_DOMAIN,
                 SERVICE_SEND_MESSAGE,
                 {"entity_id": target, "message": message},
             )
         return domain, service, {"message": message}
+
+    def _phone_service(self, entity_id: str) -> str | None:
+        """The companion app's own service behind a phone's notify entity.
+
+        notify.send_message carries a message and a title and nothing else,
+        so a push sent through it opens the app at whatever page it was last
+        on. Reported 2026-11-17: "pushes arrive but lead nowhere". The app's
+        legacy service, notify.mobile_app_<device>, still takes `data`.
+        """
+        registered = er.async_get(self._hass).async_get(entity_id)
+        if registered is None or registered.platform != MOBILE_APP:
+            return None
+        phone = self._hass.config_entries.async_get_entry(registered.config_entry_id or "")
+        name = phone.data.get("device_name") if phone else None
+        if not name:
+            return None
+        service = f"{MOBILE_APP}_{slugify(name)}"
+        return service if self._hass.services.has_service(NOTIFY_DOMAIN, service) else None

@@ -15,11 +15,11 @@ from homeassistant.components import panel_custom
 from homeassistant.components.http.server import StaticPathConfig
 from homeassistant.core import HomeAssistant
 
-from ..const import DOMAIN
+from ..const import DOMAIN, PANEL_URL_PATH
 
 _LOGGER = logging.getLogger(__name__)
 
-PANEL_URL = "skedda"
+PANEL_URL = PANEL_URL_PATH
 PANEL_NAME = "skedda-panel"
 SCRIPT_URL = f"/{DOMAIN}/skedda-panel.js"
 SCRIPT_PATH = Path(__file__).parent / "skedda-panel.js"

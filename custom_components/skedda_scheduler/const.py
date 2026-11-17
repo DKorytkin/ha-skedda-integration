@@ -6,6 +6,9 @@ from typing import Final
 
 DOMAIN: Final = "skedda_scheduler"
 
+#: Where the sidebar panel lives, and where a tapped notification leads.
+PANEL_URL_PATH: Final = "skedda"
+
 CONF_VENUE: Final = "venue"
 CONF_ALIAS: Final = "alias"
 #: Read from /webs during setup rather than typed: every booking time is

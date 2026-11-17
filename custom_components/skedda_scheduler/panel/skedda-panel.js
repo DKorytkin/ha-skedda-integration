@@ -44,6 +44,9 @@ const STRINGS = {
     cancelling: "Cancelling…",
     confirmCancel: "Release this court time?",
     loading: "Loading…",
+    back: "Back",
+    menu: "Menu",
+    offline: "No connection to Home Assistant. Retrying…",
     armed: "waiting for the window",
     disabled: "turned off",
     out_of_season: "out of season",
@@ -98,6 +101,9 @@ const STRINGS = {
     cancelling: "Скасовую…",
     confirmCancel: "Звільнити цей час на корті?",
     loading: "Завантаження…",
+    back: "Назад",
+    menu: "Меню",
+    offline: "Немає з'єднання з Home Assistant. Пробую ще…",
     armed: "чекає на відкриття вікна",
     disabled: "вимкнено",
     out_of_season: "поза сезоном",
@@ -148,6 +154,13 @@ class SkeddaPanel extends HTMLElement {
     }
   }
 
+  set narrow(narrow) {
+    // Home Assistant hides its sidebar on a phone; the panel then owns the
+    // only way out, or the app has to be closed to leave it.
+    this._narrow = narrow;
+    if (this._data) this._paint();
+  }
+
   disconnectedCallback() {
     clearInterval(this._timer);
   }
@@ -162,7 +175,7 @@ class SkeddaPanel extends HTMLElement {
       this._data = await this._hass.callWS({ type: "skedda_scheduler/overview" });
       this._error = null;
     } catch (err) {
-      this._error = err.message || String(err);
+      this._error = describe(err, this._t);
     }
     this._paint();
   }
@@ -178,7 +191,7 @@ class SkeddaPanel extends HTMLElement {
         booking_id: bookingId,
       });
     } catch (err) {
-      this._error = err.message || String(err);
+      this._error = describe(err, this._t);
     }
     await this._refresh();
   }
@@ -192,7 +205,7 @@ class SkeddaPanel extends HTMLElement {
       result = await this._hass.callWS(message);
       this._error = null;
     } catch (err) {
-      this._error = err.message || String(err);
+      this._error = describe(err, this._t);
     }
     await this._refresh();
     return result;
@@ -249,6 +262,10 @@ class SkeddaPanel extends HTMLElement {
           box-sizing: border-box;
         }
         .wrap { max-width: 1100px; margin: 0 auto; }
+        nav { display: flex; align-items: center; gap: 4px; margin: -8px 0 8px -8px; }
+        button.link.nav { color: var(--primary-text-color); font-size: 15px; padding: 8px 10px; }
+        button.link.icon.nav { font-size: 20px; }
+        button.link.icon.nav:hover { color: var(--primary-text-color); }
         header {
           display: flex; align-items: center; gap: 16px;
           margin-bottom: 16px; flex-wrap: wrap;
@@ -333,6 +350,10 @@ class SkeddaPanel extends HTMLElement {
       const button = event.target.closest("button[data-action]");
       if (!button) return;
       const action = button.dataset.action;
+      if (action === "back") goBack();
+      if (action === "menu") {
+        this.dispatchEvent(new Event("hass-toggle-menu", { bubbles: true, composed: true }));
+      }
       if (action === "cancel") this._cancel(button.dataset.entry, button.dataset.booking, button);
       if (action === "take") this._take(button);
       if (action === "move") this._move(button);
@@ -353,7 +374,7 @@ class SkeddaPanel extends HTMLElement {
     }
     const { accounts, bookings, jobs, watches, offers } = this._data;
     body.innerHTML = `
-      ${header(t, accounts)}
+      ${header(t, accounts, this._narrow)}
       ${this._error ? `<div class="card"><div class="error">${esc(this._error)}</div></div>` : ""}
       ${card(
         t.existingBookings,
@@ -380,7 +401,7 @@ class SkeddaPanel extends HTMLElement {
   }
 }
 
-function header(t, accounts) {
+function header(t, accounts, narrow) {
   const chips = accounts.length
     ? accounts
         .map(
@@ -399,6 +420,11 @@ function header(t, accounts) {
         .join("")
     : `<a class="chip" href="${SETTINGS_URL}">${esc(t.noAccounts)}</a>`;
   return `
+    <nav>
+      ${narrow ? `<button class="link icon nav" data-action="menu" title="${esc(t.menu)}"
+        aria-label="${esc(t.menu)}">☰</button>` : ""}
+      <button class="link nav" data-action="back" aria-label="${esc(t.back)}">← ${esc(t.back)}</button>
+    </nav>
     <header>
       <div class="brand">
         <svg viewBox="0 0 708 708" aria-hidden="true">
@@ -560,6 +586,32 @@ function clock(t, iso) {
 
 function pad(number) {
   return String(number).padStart(2, "0");
+}
+
+/** Back where the person came from, or home when the panel was opened directly
+ * (from a notification, say) and there is nothing to go back to. */
+function goBack() {
+  if (window.history.length > 1) {
+    window.history.back();
+    return;
+  }
+  window.history.pushState(null, "", "/");
+  window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
+}
+
+/** A sentence for whatever a websocket call rejected with.
+ *
+ * Home Assistant rejects with {code, message}, but a dropped connection
+ * rejects with a bare number, and some errors carry no message at all. Seen
+ * 2026-11-17 after a restart: "[object Object]" in red at the top of the page.
+ */
+function describe(err, t) {
+  if (typeof err === "number") return t.offline;
+  if (typeof err === "string") return err;
+  if (err && typeof err.message === "string" && err.message) return err.message;
+  if (err && err.error && typeof err.error.message === "string") return err.error.message;
+  if (err && err.code !== undefined) return `${t.offline} (${err.code})`;
+  return t.offline;
 }
 
 function esc(value) {

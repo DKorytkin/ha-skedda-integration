@@ -183,6 +183,46 @@ async def test_a_notify_entity_is_sent_to_rather_than_called_as_a_service(
     assert "Tuesday 18:00" in sent[0].data["message"]
 
 
+async def test_a_phone_is_reached_with_a_link_to_the_panel(hass: HomeAssistant) -> None:
+    """Reported 2026-11-17: pushes arrived but tapping them led nowhere.
+
+    notify.send_message takes a message and a title, nothing else. The
+    companion app's own service takes `data`, and that is where the link the
+    phone opens on tap goes.
+    """
+    from homeassistant.helpers import entity_registry as er
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    phone = MockConfigEntry(domain="mobile_app", data={"device_name": "iPhone Denys"})
+    phone.add_to_hass(hass)
+    er.async_get(hass).async_get_or_create(
+        "notify", "mobile_app", "phone-1", config_entry=phone, suggested_object_id="iphone_denys"
+    )
+    hass.states.async_set("notify.iphone_denys", "unknown")
+    pushed: list[ServiceCall] = []
+    entity: list[ServiceCall] = []
+
+    async def push(call: ServiceCall) -> None:
+        pushed.append(call)
+
+    async def send(call: ServiceCall) -> None:
+        entity.append(call)
+
+    hass.services.async_register("notify", "mobile_app_iphone_denys", push)
+    hass.services.async_register("notify", "send_message", send)
+
+    await NotifySink(hass).async_handle(
+        outcome(succeeded=True), replace(JOB, notify_targets=("notify.iphone_denys",))
+    )
+    await hass.async_block_till_done()
+
+    assert entity == []
+    assert len(pushed) == 1
+    assert "Tuesday 18:00" in pushed[0].data["message"]
+    assert pushed[0].data["data"]["url"] == "/skedda"
+    assert pushed[0].data["data"]["clickAction"] == "/skedda"
+
+
 async def test_a_legacy_notify_service_still_works(
     hass: HomeAssistant, notify_calls: list[ServiceCall]
 ) -> None:
