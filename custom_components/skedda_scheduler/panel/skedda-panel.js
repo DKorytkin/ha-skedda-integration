@@ -44,7 +44,6 @@ const STRINGS = {
     cancelling: "Cancelling…",
     confirmCancel: "Release this court time?",
     loading: "Loading…",
-    back: "Back",
     menu: "Menu",
     offline: "No connection to Home Assistant. Retrying…",
     armed: "waiting for the window",
@@ -101,7 +100,6 @@ const STRINGS = {
     cancelling: "Скасовую…",
     confirmCancel: "Звільнити цей час на корті?",
     loading: "Завантаження…",
-    back: "Назад",
     menu: "Меню",
     offline: "Немає з'єднання з Home Assistant. Пробую ще…",
     armed: "чекає на відкриття вікна",
@@ -139,6 +137,9 @@ const STRINGS = {
 //: datetime.weekday(): Monday first.
 const DAY_NAMES = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
+//: mdi:menu, the icon Home Assistant's own menu button draws.
+const MENU_ICON = "M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z";
+
 const SETTINGS_URL = "/config/integrations/integration/skedda_scheduler";
 
 class SkeddaPanel extends HTMLElement {
@@ -159,6 +160,23 @@ class SkeddaPanel extends HTMLElement {
     // only way out, or the app has to be closed to leave it.
     this._narrow = narrow;
     if (this._data) this._paint();
+  }
+
+  /** Home Assistant's own menu button, so it matches every other page - size,
+   * place, and the dot it shows for pending notifications. A plain button
+   * drawn the same way stands in if the frontend ever stops defining it. */
+  _mountMenu(body) {
+    const slot = body.querySelector(".toolbar");
+    if (!slot) return;
+    if (customElements.get("ha-menu-button")) {
+      const button = document.createElement("ha-menu-button");
+      button.hass = this._hass;
+      button.narrow = true;
+      slot.append(button);
+      return;
+    }
+    slot.innerHTML = `<button class="menu" data-action="menu" aria-label="${esc(this._t.menu)}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="${MENU_ICON}"/></svg></button>`;
   }
 
   disconnectedCallback() {
@@ -262,10 +280,17 @@ class SkeddaPanel extends HTMLElement {
           box-sizing: border-box;
         }
         .wrap { max-width: 1100px; margin: 0 auto; }
-        nav { display: flex; align-items: center; gap: 4px; margin: -8px 0 8px -8px; }
-        button.link.nav { color: var(--primary-text-color); font-size: 15px; padding: 8px 10px; }
-        button.link.icon.nav { font-size: 20px; }
-        button.link.icon.nav:hover { color: var(--primary-text-color); }
+        /* The height and inset of Home Assistant's own top bar, so the menu
+           sits where it does on every other page. */
+        .toolbar {
+          display: flex; align-items: center; height: 56px;
+          margin: -16px -16px 0; padding: 0 4px;
+        }
+        button.menu {
+          background: none; color: var(--sidebar-icon-color, var(--primary-text-color));
+          width: 48px; height: 48px; padding: 12px; border-radius: 50%;
+        }
+        button.menu svg { width: 24px; height: 24px; display: block; fill: currentColor; }
         header {
           display: flex; align-items: center; gap: 16px;
           margin-bottom: 16px; flex-wrap: wrap;
@@ -350,7 +375,6 @@ class SkeddaPanel extends HTMLElement {
       const button = event.target.closest("button[data-action]");
       if (!button) return;
       const action = button.dataset.action;
-      if (action === "back") goBack();
       if (action === "menu") {
         this.dispatchEvent(new Event("hass-toggle-menu", { bubbles: true, composed: true }));
       }
@@ -398,6 +422,7 @@ class SkeddaPanel extends HTMLElement {
         t.noWatches,
       )}
     `;
+    this._mountMenu(body);
   }
 }
 
@@ -420,11 +445,7 @@ function header(t, accounts, narrow) {
         .join("")
     : `<a class="chip" href="${SETTINGS_URL}">${esc(t.noAccounts)}</a>`;
   return `
-    <nav>
-      ${narrow ? `<button class="link icon nav" data-action="menu" title="${esc(t.menu)}"
-        aria-label="${esc(t.menu)}">☰</button>` : ""}
-      <button class="link nav" data-action="back" aria-label="${esc(t.back)}">← ${esc(t.back)}</button>
-    </nav>
+    ${narrow ? `<div class="toolbar"></div>` : ""}
     <header>
       <div class="brand">
         <svg viewBox="0 0 708 708" aria-hidden="true">
@@ -586,17 +607,6 @@ function clock(t, iso) {
 
 function pad(number) {
   return String(number).padStart(2, "0");
-}
-
-/** Back where the person came from, or home when the panel was opened directly
- * (from a notification, say) and there is nothing to go back to. */
-function goBack() {
-  if (window.history.length > 1) {
-    window.history.back();
-    return;
-  }
-  window.history.pushState(null, "", "/");
-  window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
 }
 
 /** A sentence for whatever a websocket call rejected with.
