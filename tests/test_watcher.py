@@ -87,6 +87,9 @@ async def test_a_free_slot_inside_the_rule_is_booked(
 
     assert caught is not None
     assert mock_provider.book.await_count == 1
+    # The rule's name is ours; on the venue's day view it would sit next to
+    # the booker's name for everybody to read.
+    assert mock_provider.book.await_args.args[0].title == ""
 
 
 async def test_nothing_is_booked_when_no_account_has_quota_left(
@@ -704,6 +707,29 @@ async def test_a_week_whose_window_opened_without_the_job_is_not_reserved(
 
     assert week_of(nearest) not in weeks
     assert week_of(later) in weeks
+
+
+async def test_a_job_slot_just_past_the_horizon_still_reserves_its_week(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, mock_provider: AsyncMock
+) -> None:
+    """Observed 2026-11-12: Thursday 17:00, a job for Thursday-fortnight 20:00.
+
+    The horizon ended at 17:00 that day, so the job's slot fell three hours
+    outside it and its week went unreserved - while the watch could already
+    see 18:00 the same Thursday, took it with that account's only hour, and
+    the job failed on quota at 20:00. Three weeks running.
+    """
+    from custom_components.skedda_scheduler.core.watch import week_of
+
+    job_id = await setup_with_job(hass, mock_entry)
+    runner = mock_entry.runtime_data.scheduler.runner_for(job_id)
+    slot = runner.job.next_slot(runner.job.next_slot(dt_util.utcnow())[0])[0]
+    runner.armed_slot = slot
+    now = slot - timedelta(days=14, hours=3)
+
+    weeks = aimed_weeks(mock_entry, now, now + timedelta(days=14))
+
+    assert week_of(slot) in weeks
 
 
 async def test_a_booking_cancelled_while_home_assistant_was_down_is_a_release(
