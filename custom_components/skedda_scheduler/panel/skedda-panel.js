@@ -48,6 +48,7 @@ const STRINGS = {
     offline: "No connection to Home Assistant. Retrying…",
     armed: "waiting for the window",
     disabled: "turned off",
+    jobOnOff: "Book on schedule",
     out_of_season: "out of season",
     opens: "opens",
     weekly: "weekly",
@@ -104,6 +105,7 @@ const STRINGS = {
     offline: "Немає з'єднання з Home Assistant. Пробую ще…",
     armed: "чекає на відкриття вікна",
     disabled: "вимкнено",
+    jobOnOff: "Бронювати за розкладом",
     out_of_season: "поза сезоном",
     opens: "відкриється",
     weekly: "щотижня",
@@ -254,6 +256,26 @@ class SkeddaPanel extends HTMLElement {
     });
   }
 
+  async _toggleJob(input) {
+    const { entry, job } = input.dataset;
+    // The account reloads with the change, so the row is only trusted once
+    // the next overview says what the scheduler actually did.
+    input.disabled = true;
+    try {
+      await this._hass.callWS({
+        type: "skedda_scheduler/set_job_enabled",
+        entry_id: entry,
+        job_id: job,
+        enabled: input.checked,
+      });
+      this._error = null;
+    } catch (err) {
+      this._error = describe(err, this._t);
+    }
+    // A moment for the reload, or the overview still shows the old arming.
+    setTimeout(() => this._refresh(), 1500);
+  }
+
   async _run(button) {
     const { entry, rule } = button.dataset;
     const result = await this._act(button, {
@@ -361,6 +383,42 @@ class SkeddaPanel extends HTMLElement {
         /* A slot nobody holds yet: there, but not ours - faded, with only its
            button at full strength. */
         tr.free td { color: var(--secondary-text-color); border-top-style: dashed; }
+        tr.off td:not(.actions) { opacity: .5; }
+        label.toggle { position: relative; display: inline-block; width: 36px; height: 20px; cursor: pointer; vertical-align: middle; }
+        label.toggle input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+        label.toggle span {
+          position: absolute; inset: 0; border-radius: 999px; pointer-events: none;
+          background: var(--switch-unchecked-track-color, var(--disabled-color, #9e9e9e)); transition: background .15s;
+        }
+        label.toggle span::after {
+          content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+          background: var(--switch-unchecked-button-color, #fafafa); transition: transform .15s;
+        }
+        label.toggle input:checked + span { background: var(--switch-checked-track-color, var(--primary-color)); }
+        label.toggle input:checked + span::after {
+          transform: translateX(16px); background: var(--switch-checked-button-color, #fff);
+        }
+        label.toggle input:focus-visible + span { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+        label.toggle input:disabled + span { opacity: .5; }
+        /* A phone cannot fit six columns: each job becomes a small card, what
+           it is on the left, its switch on the right where a thumb finds it. */
+        .narrow-only { display: none; }
+        @media (max-width: 700px) {
+          .narrow-only { display: inline; }
+          table.jobs tr.head { display: none; }
+          table.jobs tr.job {
+            display: grid; grid-template-columns: 1fr auto; column-gap: 12px;
+            grid-template-areas: "name toggle" "slot toggle" "court toggle" "status toggle";
+            padding: 12px 16px; border-top: 1px solid var(--divider-color, #e0e0e0);
+          }
+          table.jobs tr.job td { border-top: none; padding: 0; }
+          table.jobs td.name { grid-area: name; font-weight: 500; }
+          table.jobs td.slot { grid-area: slot; }
+          table.jobs td.court { grid-area: court; color: var(--secondary-text-color); font-size: 13px; }
+          table.jobs td.account { display: none; }
+          table.jobs td.status { grid-area: status; color: var(--secondary-text-color); font-size: 13px; }
+          table.jobs td.toggle-cell { grid-area: toggle; align-self: center; }
+        }
         tr.free td:not(.actions) { opacity: .55; }
         tr.free:hover td { background: none; }
         button.small { padding: 4px 12px; font-size: 12px; }
@@ -382,6 +440,10 @@ class SkeddaPanel extends HTMLElement {
       if (action === "take") this._take(button);
       if (action === "move") this._move(button);
       if (action === "run") this._run(button);
+    });
+    this.shadowRoot.addEventListener("change", (event) => {
+      const input = event.target.closest('input[data-action="toggle-job"]');
+      if (input) this._toggleJob(input);
     });
   }
 
@@ -410,9 +472,10 @@ class SkeddaPanel extends HTMLElement {
       ${card(
         t.bookingJobs,
         `<a class="button" href="${SETTINGS_URL}">${esc(t.manageJobs)}</a>`,
-        [t.nextSlot, t.job, t.court, t.account, t.status],
+        [t.nextSlot, t.job, t.court, t.account, t.status, ""],
         jobs.map((job) => jobRow(t, job)),
         t.noJobs,
+        "jobs",
       )}
       ${card(
         t.watching,
@@ -457,10 +520,12 @@ function header(t, accounts, narrow) {
     </header>`;
 }
 
-function card(title, action, headings, rows, empty) {
-  const head = headings ? `<tr>${headings.map((h) => `<th>${esc(h)}</th>`).join("")}</tr>` : "";
+function card(title, action, headings, rows, empty, tableClass = "") {
+  const head = headings
+    ? `<tr class="head">${headings.map((h) => `<th>${esc(h)}</th>`).join("")}</tr>`
+    : "";
   const inner = rows.length
-    ? `<table>${head}${rows.join("")}</table>`
+    ? `<table class="${tableClass}">${head}${rows.join("")}</table>`
     : `<div class="empty">${esc(empty)}</div>`;
   return `<div class="card"><h2>${esc(title)}${action}</h2>${inner}</div>`;
 }
@@ -546,12 +611,20 @@ function jobRow(t, job) {
       : status;
   // No per-row link: it led to the same page as the button above it, and two
   // ways to the same place read as two different places.
-  return `<tr>
-    <td>${job.next_slot ? when(job.next_slot) : `<span class="muted">—</span>`}</td>
-    <td>${esc(job.name)}</td>
-    <td>${esc(job.court)}${repeat}</td>
-    <td>${esc(job.account)}</td>
-    <td>${detail}</td>
+  // Off keeps the job and its settings; it only stops arming.
+  return `<tr class="job ${job.enabled ? "" : "off"}">
+    <td class="slot">${job.next_slot ? when(job.next_slot) : `<span class="muted">—</span>`}</td>
+    <td class="name">${esc(job.name)}</td>
+    <td class="court">${esc(job.court)}${repeat}<span class="narrow-only"> · ${esc(job.account)}</span></td>
+    <td class="account">${esc(job.account)}</td>
+    <td class="status">${detail}</td>
+    <td class="actions toggle-cell">
+      <label class="toggle" title="${esc(t.jobOnOff)}">
+        <input type="checkbox" role="switch" data-action="toggle-job" aria-label="${esc(t.jobOnOff)}: ${esc(job.name)}"
+               data-entry="${esc(job.entry_id)}" data-job="${esc(job.job_id)}" ${job.enabled ? "checked" : ""}>
+        <span></span>
+      </label>
+    </td>
   </tr>`;
 }
 

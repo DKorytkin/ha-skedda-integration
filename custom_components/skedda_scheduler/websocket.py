@@ -42,6 +42,7 @@ TYPE_CANCEL = f"{DOMAIN}/cancel_booking"
 TYPE_TAKE = f"{DOMAIN}/take_slot"
 TYPE_MOVE = f"{DOMAIN}/move_booking"
 TYPE_RUN_WATCH = f"{DOMAIN}/run_watch_rule"
+TYPE_SET_JOB_ENABLED = f"{DOMAIN}/set_job_enabled"
 
 
 @callback
@@ -51,6 +52,7 @@ def async_register(hass: HomeAssistant) -> None:
     async_register_command(hass, websocket_take_slot)
     async_register_command(hass, websocket_move_booking)
     async_register_command(hass, websocket_run_watch_rule)
+    async_register_command(hass, websocket_set_job_enabled)
 
 
 @require_admin
@@ -364,3 +366,35 @@ async def websocket_run_watch_rule(
         connection.send_error(msg["id"], "run_failed", str(err))
         return
     connection.send_result(msg["id"], {"caught": caught.start.isoformat() if caught else None})
+
+
+@require_admin
+@websocket_command(
+    {
+        vol.Required("type"): TYPE_SET_JOB_ENABLED,
+        vol.Required("entry_id"): str,
+        vol.Required("job_id"): str,
+        vol.Required("enabled"): bool,
+    }
+)
+@callback
+def websocket_set_job_enabled(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Switch one booking job off or on, keeping everything else about it.
+
+    The same change the job's switch entity makes: the subentry's update
+    reloads the account, and the scheduler arms - or does not - from that.
+    """
+    entry = hass.config_entries.async_get_entry(msg["entry_id"])
+    if entry is None or not is_account_entry(entry):
+        connection.send_error(msg["id"], "not_loaded", "That account is not set up.")
+        return
+    subentry = entry.subentries.get(msg["job_id"])
+    if subentry is None or subentry.subentry_type != SUBENTRY_TYPE_JOB:
+        connection.send_error(msg["id"], "unknown_job", "That booking job does not exist.")
+        return
+    hass.config_entries.async_update_subentry(
+        entry, subentry, data={**subentry.data, CONF_ENABLED: msg["enabled"]}
+    )
+    connection.send_result(msg["id"], {"enabled": msg["enabled"]})

@@ -194,4 +194,7 @@ async def test_a_fortnightly_job_is_cut_off_by_the_horizon_not_the_count(
 
     found = events[PENDING]["events"]
     assert len(found) < 12, "the horizon bit before the count did"
-    assert max(event["start"] for event in found) < (dt_util.utcnow() + PENDING_HORIZON).isoformat()
+    # As instants, not strings: "18:00+02:00" sorts after "16:47+00:00" though
+    # it is earlier, which failed this every evening in Kyiv.
+    latest = max(dt_util.parse_datetime(event["start"]) for event in found)
+    assert latest < dt_util.utcnow() + PENDING_HORIZON
