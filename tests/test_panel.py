@@ -314,3 +314,12 @@ def test_an_error_is_shown_as_words_not_as_an_object() -> None:
 
     assert "function describe(" in source
     assert "err.message || String(err)" not in source
+
+
+def test_each_booking_job_can_be_switched_off_from_the_panel() -> None:
+    """Requested 2026-11-18: switch each booking job off on its own."""
+    source = PANEL_JS.read_text(encoding="utf-8")
+
+    assert "skedda_scheduler/set_job_enabled" in source
+    assert 'data-action="toggle-job"' in source
+    assert 'role="switch"' in source

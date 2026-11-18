@@ -562,3 +562,54 @@ async def test_an_open_panel_asks_for_a_poll_once_the_snapshot_is_old(
         await hass.async_block_till_done()
 
     mock_provider.list_bookings.assert_awaited()
+
+
+async def set_enabled(client: Any, **message: Any) -> dict[str, Any]:
+    await client.send_json_auto_id({"type": "skedda_scheduler/set_job_enabled", **message})
+    response: dict[str, Any] = await client.receive_json()
+    return response
+
+
+async def test_a_job_can_be_switched_off_and_on_from_the_panel(
+    hass: HomeAssistant,
+    hass_ws_client: Any,
+    mock_entry: MockConfigEntry,
+    mock_provider: AsyncMock,
+) -> None:
+    """Requested 2026-11-18: each booking job switched off on its own.
+
+    The job keeps its settings: off means it does not arm, not that it is gone.
+    """
+    job_id = await setup_with_job(hass, mock_entry)
+    client = await hass_ws_client(hass)
+
+    response = await set_enabled(client, entry_id=mock_entry.entry_id, job_id=job_id, enabled=False)
+    await hass.async_block_till_done()
+
+    assert response["success"], response
+    assert mock_entry.subentries[job_id].data["enabled"] is False
+    job = (await overview(client))["jobs"][0]
+    assert (job["enabled"], job["status"]) == (False, "disabled")
+    assert mock_entry.runtime_data.scheduler.runner_for(job_id).armed_for is None
+
+    response = await set_enabled(client, entry_id=mock_entry.entry_id, job_id=job_id, enabled=True)
+    await hass.async_block_till_done()
+
+    assert response["success"], response
+    job = (await overview(client))["jobs"][0]
+    assert (job["enabled"], job["status"]) == (True, "armed")
+
+
+async def test_switching_a_job_that_does_not_exist_is_refused(
+    hass: HomeAssistant,
+    hass_ws_client: Any,
+    mock_entry: MockConfigEntry,
+    mock_provider: AsyncMock,
+) -> None:
+    await setup_with_job(hass, mock_entry)
+    client = await hass_ws_client(hass)
+
+    response = await set_enabled(client, entry_id=mock_entry.entry_id, job_id="nope", enabled=False)
+
+    assert not response["success"]
+    assert response["error"]["code"] == "unknown_job"
